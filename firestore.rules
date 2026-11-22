@@ -51,10 +51,10 @@ service cloud.firestore {
         // Votar en la ronda k: solo una vez (de null a true/false), con la ronda abierta,
         // con producto elegido y sin haber comprado en una ronda anterior.
         function canVote(k) {
-          return changed().hasOnly(['v' + k])
-            && resource.data['v' + k] == null
-            && request.resource.data['v' + k] is bool
-            && session().stage == 'r' + k
+          return changed().hasOnly(['v' + string(k)])
+            && resource.data['v' + string(k)] == null
+            && request.resource.data['v' + string(k)] is bool
+            && session().stage == 'r' + string(k)
             && resource.data.product != null
             && (k < 2 || resource.data.v1 != true)
             && (k < 3 || resource.data.v2 != true);
