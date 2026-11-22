@@ -1,7 +1,7 @@
 // BASS CHALLENGE — lógica compartida (productos, sincronización, estadísticas, utilidades)
 
-export const STAGES = ['lobby', 'elegir', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
-export const STAGE_LABELS = ['Entrada', 'Producto', 'Ronda 1', 'Resultados', 'Ronda 2', 'Resultados', 'Ronda 3', 'Final', 'Modelo de Bass'];
+export const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
+export const STAGE_LABELS = ['Entrada', 'Ronda 1', 'Resultados', 'Ronda 2', 'Resultados', 'Ronda 3', 'Final', 'Modelo de Bass'];
 
 const ICONS = {
   watch: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6l.6-3h4.8l.6 3M9 18l.6 3h4.8l.6-3M12 9.5V12l1.6 1.2"/></svg>',
@@ -25,14 +25,14 @@ export const adoptedRound = (p) => p.votes.findIndex((v) => v === true);
 
 // ---------- Reglas del juego (compartidas por ambos modos) ----------
 export function canChoose(state, p) {
-  const i = STAGES.indexOf(state.stage);
-  return i >= 1 && (state.stage === 'elegir' || !p.product);
+  // Se elige en la entrada (y se puede cambiar); después solo quien aún no eligió (llegó tarde).
+  return state.stage === 'lobby' || !p.product;
 }
 export function canVote(state, p, round) {
   if (!p || !p.product || state.stage !== 'r' + round) return false;
   const a = adoptedRound(p);
-  if (a !== -1 && a < round - 1) return false;
-  return p.votes[round - 1] === null;
+  // Mientras la ronda está abierta se puede responder y cambiar la respuesta.
+  return !(a !== -1 && a < round - 1);
 }
 
 function normalize(raw) {

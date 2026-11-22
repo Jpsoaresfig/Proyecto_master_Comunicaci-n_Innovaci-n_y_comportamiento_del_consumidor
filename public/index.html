@@ -21,6 +21,7 @@ let id = store('bass_id');
 if (!id) { id = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store('bass_id', id); }
 const myId = () => (state && state.me) || id;
 let state = null, api = null, lastHtml = '', busy = false, error = '', rejoining = false;
+let editing = null; // ronda cuya respuesta se está cambiando
 
 const header = (p) => `<header><div class="brand">BASS <b>CHALLENGE</b></div>${p ? `<div class="who">${esc(p.name)}</div>` : ''}</header>`;
 const pic = (prod, cls = 'pic') => `<div class="${cls}" style="background:${prod.color}22;color:${prod.color}">${prod.icon}</div>`;
@@ -41,8 +42,8 @@ function socialBox(s, prod) {
 function question(round, p, prod) {
   const s = stats(state, round - 1);
   const texts = {
-    1: { tag: 'Ronda 1', q: '¿Comprarías este producto ahora, aunque no conozcas a nadie que ya lo haya comprado?', yes: 'Sí, lo compraría', no: 'No, esperaría' },
-    2: { tag: 'Ronda 2', q: 'Sabiendo que otras personas ya compraron este producto, ¿cambiarías tu decisión?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
+    1: { tag: 'Ronda 1', q: '¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?', yes: 'Sí, lo compraría', no: 'No, esperaría' },
+    2: { tag: 'Ronda 2', q: 'Ahora que sabes cuántas personas ya compraron este producto, ¿ha cambiado tu decisión?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
     3: { tag: 'Última ronda', q: 'Con los resultados actualizados, ¿comprarías el producto ahora?', yes: 'Sí, lo compraría', no: 'No, no lo compraría' },
   }[round];
   const a = adoptedRound(p);
@@ -51,10 +52,11 @@ function question(round, p, prod) {
       <h1>Ya compraste este producto en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
       ${socialBox(s, prod)}</div>`;
   }
-  if (p.votes[round - 1] !== null) {
+  if (p.votes[round - 1] !== null && editing !== round) {
     return `<div class="center fade-in"><div class="ok-badge">✓</div><h1>Respuesta registrada</h1>
       <p>Tu respuesta: <b style="color:var(--text)">${p.votes[round - 1] ? texts.yes : texts.no}</b>.</p>
-      <p class="muted"><span class="wait-dot"></span>Mira la pantalla principal.</p></div>`;
+      <button class="btn ghost" data-edit="${round}" style="margin-top:8px">Cambiar mi respuesta</button>
+      <p class="muted"><span class="wait-dot"></span>Puedes cambiarla hasta que se revelen los resultados.</p></div>`;
   }
   return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
     <h1>${texts.q}</h1>
@@ -67,7 +69,10 @@ function question(round, p, prod) {
 
 function view() {
   if (state.noSession) {
-    return header() + `<div class="center fade-in"><span class="tag"><i></i>Bass Challenge</span><h1>Escanea el código QR</h1><p>Abre el enlace desde el código QR que aparece en la pantalla del presentador.</p></div>`;
+    return header() + `<div class="center fade-in"><span class="tag"><i></i>Bass Challenge</span><h1>Escanea el código QR</h1><p>O escribe el código de acceso que aparece en la pantalla del presentador.</p>
+      <form id="code" class="stack"><input class="field" id="sid" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Código de acceso" style="text-align:center;letter-spacing:.15em" required>
+      <button class="btn">Entrar</button></form><div class="err">${esc(error)}</div>
+      <p class="muted" style="margin-top:24px">¿Eres el presentador? <a href="presentador" style="color:var(--accent)">Abrir el panel con el QR →</a></p></div>`;
   }
   const p = state.participants[myId()];
   if (!p) {
@@ -79,16 +84,14 @@ function view() {
   }
   const st = state.stage;
   const prod = productById(p.product);
-  if (st === 'lobby') return header(p) + waitScreen(`¡Listo, ${esc(p.name)}!`, 'Ya estás dentro. La dinámica comenzará en breve.');
-
-  if (!prod || (st === 'elegir')) {
+  if (!prod || st === 'lobby') {
     if (!canChoose(state, p)) return header(p) + waitScreen('Espera', 'Esperando la siguiente etapa.');
     return header(p) + `<div class="fade-in"><span class="tag"><i></i>Elige un producto</span>
-      <h1>¿Qué producto te interesa más?</h1><p>Puedes cambiar tu elección hasta que empiece la ronda.</p>
+      <h1>¿Qué producto te interesa más?</h1><p>Lo seguirás durante toda la simulación. Puedes cambiarlo hasta que empiece la ronda 1.</p>
       <div class="stack">${PRODUCTS.map((x) => `<button class="prod-opt ${p.product === x.id ? 'sel' : ''}" style="--c:${x.color}" data-prod="${x.id}">
         ${pic(x)}<div><div class="t">${x.name}</div><div class="d">${x.desc}</div></div><div class="pr">${x.price}</div></button>`).join('')}</div>
       <div class="err">${esc(error)}</div>
-      ${p.product ? '<p class="muted" style="margin-top:14px"><span class="wait-dot"></span>Elección guardada. Espera la ronda 1.</p>' : ''}</div>`;
+      ${p.product ? '<p class="muted" style="margin-top:14px"><span class="wait-dot"></span>Elección guardada. La dinámica comenzará en breve.</p>' : ''}</div>`;
   }
 
   if (st === 'r1' || st === 'r2' || st === 'r3') return header(p) + question(Number(st[1]), p, prod);
@@ -125,6 +128,13 @@ async function act(fn) {
 }
 
 app.addEventListener('submit', (e) => {
+  if (e.target.id === 'code') {
+    e.preventDefault();
+    const sid = document.getElementById('sid').value.trim().toLowerCase();
+    if (/^[a-z0-9]{4,12}$/.test(sid)) location.search = '?s=' + sid;
+    else { error = 'Código no válido'; lastHtml = ''; render(); }
+    return;
+  }
   if (e.target.id !== 'join') return;
   e.preventDefault();
   const name = document.getElementById('name').value.trim();
@@ -135,14 +145,17 @@ app.addEventListener('submit', (e) => {
 app.addEventListener('click', (e) => {
   const prodBtn = e.target.closest('[data-prod]');
   if (prodBtn) return act(() => api.choose(myId(), prodBtn.dataset.prod));
+  const editBtn = e.target.closest('[data-edit]');
+  if (editBtn) { editing = Number(editBtn.dataset.edit); return render(); }
   const voteBtn = e.target.closest('[data-vote]');
   if (voteBtn) {
     const round = Number(state.stage[1]);
-    if (canVote(state, state.participants[myId()], round)) act(() => api.vote(myId(), round, voteBtn.dataset.vote === '1'));
+    if (canVote(state, state.participants[myId()], round)) act(async () => { await api.vote(myId(), round, voteBtn.dataset.vote === '1'); editing = null; });
   }
 });
 
 api = await connect((s) => {
+  if (state && s.stage !== state.stage) editing = null;
   state = s;
   // Si la simulación se reinició, vuelve a entrar automáticamente con el mismo apodo.
   const saved = store('bass_name');

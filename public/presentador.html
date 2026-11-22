@@ -14,6 +14,12 @@
   #qrOverlay.on { display: grid; }
   #qrOverlay .qr-box { width: min(70vh, 600px); }
   #qrOverlay .qr-url { max-width: none; font-size: 22px; }
+  .qr-code { text-align: center; margin-top: 10px; font-size: 18px; color: var(--text-2); }
+  .qr-code b { font-family: ui-monospace, Consolas, monospace; font-size: 34px; color: var(--text); letter-spacing: .14em; margin-left: 8px; }
+  .dist { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; max-width: 620px; }
+  .dist .card { padding: 14px 16px; border-left: 4px solid var(--c); }
+  .dist .n { font-size: 30px; font-weight: 700; }
+  .dist .t { font-size: 14px; color: var(--text-2); }
 </style>
 </head>
 <body>
@@ -29,10 +35,10 @@
     <button class="cbtn" id="qrBtn" title="Mostrar el QR (tecla Q)">QR</button>
     <button class="cbtn danger" id="reset">Reiniciar</button>
     <button class="cbtn" id="prev">← Atrás</button>
-    <button class="cbtn primary" id="next">Iniciar dinámica →</button>
+    <button class="cbtn primary" id="next">Iniciar ronda 1 →</button>
   </div>
 </div>
-<div id="qrOverlay"><div><div class="qr-box" id="qrBig"></div><div class="qr-url" id="qrBigUrl"></div></div></div>
+<div id="qrOverlay"><div><div class="qr-box" id="qrBig"></div><div class="qr-url" id="qrBigUrl"></div><div class="qr-code" id="qrBigCode"></div></div></div>
 
 <script type="module">
 import { connect, STAGES, STAGE_LABELS, PRODUCTS, stats, adoptedRound, illustrativePQ, bassCurve, esc, pct, enableTooltips } from './common.js';
@@ -50,6 +56,7 @@ function joinUrl() {
   if (!local) return location.origin + '/';
   return ((state && state.lanUrls[0]) || location.origin) + '/';
 }
+const codeHtml = () => (state && state.sessionId ? `Código de acceso <b>${esc(state.sessionId)}</b>` : '');
 function qrSvg(text) {
   const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
   const n = qr.getModuleCount(); let d = '';
@@ -152,31 +159,19 @@ const VIEWS = {
     const names = Object.values(state.participants).sort((a, b) => a.t - b.t);
     const lanOnly = !state.publicUrl && !state.sessionId && ['localhost', '127.0.0.1'].includes(location.hostname);
     return `<div class="lobby">
-      <div><div class="qr-box">${qrSvg(u)}</div><div class="qr-url">${esc(u.replace(/\/$/, ''))}</div></div>
+      <div><div class="qr-box">${qrSvg(u)}</div><div class="qr-url">${esc(u.replace(/\/$/, ''))}</div><div class="qr-code">${codeHtml()}</div></div>
       <div><span class="tag"><i></i>Modelo de difusión de Bass · 1969</span>
         <h1 class="hero-title">Escanea el código<br>y únete al desafío</h1>
         <p class="lead">Simularemos en directo cómo se difunde una innovación en un mercado: quién compra primero, quién imita y cuándo se satura.</p>
         <div class="count-big num">${names.length}</div><div class="muted" style="font-size:18px">participantes conectados</div>
+        <div class="dist">${PRODUCTS.map((p) => `<div class="card" style="--c:${p.color}"><div class="n num">${names.filter((x) => x.product === p.id).length}</div><div class="t">${p.name} · ${p.price}</div></div>`).join('')}</div>
         <div class="chips">${names.map((p) => `<span class="chip">${esc(p.name)}</span>`).join('')}</div>
         ${lanOnly ? '<div class="note">Enlace de red local: los móviles deben estar en la misma red Wi-Fi que este ordenador.</div>' : ''}
       </div></div>`;
   },
-  elegir() {
-    const list = Object.values(state.participants);
-    const chosen = list.filter((p) => p.product).length;
-    return `<span class="tag"><i></i>Etapa 2 · Elección de producto</span>
-      <h1 class="hero-title" style="font-size:46px">Elige el producto que más te interesa</h1>
-      <p class="lead"><span class="num">${chosen}</span> de <span class="num">${list.length}</span> participantes ya eligieron.</p>
-      <div class="prod-grid">${PRODUCTS.map((p) => {
-        const n = list.filter((x) => x.product === p.id).length;
-        return `<div class="card prod-card" style="--c:${p.color}"><div class="pic" style="background:${p.color}22;color:${p.color}">${p.icon}</div>
-          <h3>${p.name}</h3><div class="d">${p.desc}</div><div class="pr">${p.price}</div>
-          <div class="cnt"><span>Lo eligieron</span><b class="num">${n}</b></div></div>`;
-      }).join('')}</div>`;
-  },
   r1() {
     return `<div class="round"><div><span class="tag"><i></i>Ronda 1 · Innovación</span>
-      <h1 class="question">¿Comprarías este producto ahora, aunque no conozcas a nadie que ya lo haya comprado?</h1>
+      <h1 class="question">¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?</h1>
       <div class="card concept" style="--c:var(--innov)"><h3>Coeficiente de innovación (p)</h3>
       <p>Mide la adopción por iniciativa propia: los <b>innovadores</b> compran sin depender de la opinión ni del ejemplo de otros.</p></div></div>
       ${progressCard(1)}</div>`;
@@ -194,7 +189,7 @@ const VIEWS = {
   r2() {
     const s = stats(state, 1);
     return `<div class="round"><div><span class="tag"><i></i>Ronda 2 · Influencia social</span>
-      <h1 class="question">Sabiendo que otras personas ya compraron este producto, ¿cambiarías tu decisión?</h1>
+      <h1 class="question">Ahora que sabes cuántas personas ya compraron este producto, ¿ha cambiado tu decisión?</h1>
       <div class="card concept" style="--c:var(--imit)"><h3>Coeficiente de imitación (q)</h3>
       <p>Mide la adopción influida por quienes ya adoptaron: boca a boca, prueba social y presión del entorno. Cuantos más adoptantes hay, más fuerte es el efecto.</p></div>
       <p class="muted" style="margin-top:16px;font-size:16px">Ya compraron: ${s.byProduct.map((p) => `<b style="color:var(--text)">${p.name}</b> ${p.adopters}/${p.chose}`).join(' · ')}</p></div>
@@ -274,7 +269,7 @@ const VIEWS = {
 };
 
 const NEXT_LABEL = {
-  lobby: 'Iniciar dinámica →', elegir: 'Abrir ronda 1 →', r1: 'Revelar resultados →', res1: 'Ronda 2: influencia social →',
+  lobby: 'Iniciar ronda 1 →', r1: 'Revelar resultados →', res1: 'Ronda 2: influencia social →',
   r2: 'Revelar resultados →', res2: 'Última ronda →', r3: 'Revelar resultados finales →', final: 'Ver modelo de Bass →', bass: 'Fin',
 };
 
@@ -288,7 +283,7 @@ function render() {
   $('prev').disabled = i === 0;
   const u = joinUrl();
   $('url').textContent = st === 'lobby' ? '' : u.replace(/\/$/, '');
-  if ($('qrOverlay').classList.contains('on')) { $('qrBig').innerHTML = qrSvg(u); $('qrBigUrl').textContent = u.replace(/\/$/, ''); }
+  if ($('qrOverlay').classList.contains('on')) { $('qrBig').innerHTML = qrSvg(u); $('qrBigUrl').textContent = u.replace(/\/$/, ''); $('qrBigCode').innerHTML = codeHtml(); }
   const html = VIEWS[st]();
   if (html !== lastHtml || st !== lastStage) {
     $('view').innerHTML = `<div class="${st !== lastStage ? 'fade-in' : ''}">${html}</div>`;

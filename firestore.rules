@@ -4,8 +4,8 @@ rules_version = '2';
 // - Solo se puede acceder a la colección "sessions"; todo lo demás queda cerrado.
 // - Cada dispositivo usa acceso anónimo (invisible, sin registro) para tener un uid.
 // - El presentador (owner) es el único que cambia la etapa o reinicia su sesión.
-// - Cada participante solo crea/modifica SU documento, y solo vota una vez por ronda,
-//   únicamente mientras esa ronda está abierta.
+// - Cada participante solo crea/modifica SU documento, y solo vota (o cambia su voto)
+//   mientras esa ronda está abierta.
 //
 // IMPORTANTE: si el proyecto ya tiene reglas para otra aplicación, NO las sustituyas:
 // copia solo el bloque "match /sessions/{sid} { ... }" dentro de tu "match /databases/{database}/documents".
@@ -14,7 +14,7 @@ service cloud.firestore {
 
     match /sessions/{sid} {
       function stages() {
-        return ['lobby', 'elegir', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
+        return ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
       }
       function isOwner() {
         return request.auth != null && resource.data.owner == request.auth.uid;
@@ -48,11 +48,10 @@ service cloud.firestore {
         function validName(n) {
           return n is string && n.size() >= 1 && n.size() <= 18;
         }
-        // Votar en la ronda k: solo una vez (de null a true/false), con la ronda abierta,
+        // Votar en la ronda k (o cambiar el voto): solo con la ronda abierta,
         // con producto elegido y sin haber comprado en una ronda anterior.
         function canVote(k) {
           return changed().hasOnly(['v' + string(k)])
-            && resource.data['v' + string(k)] == null
             && request.resource.data['v' + string(k)] is bool
             && session().stage == 'r' + string(k)
             && resource.data.product != null
@@ -76,8 +75,7 @@ service cloud.firestore {
           (changed().hasOnly(['name']) && validName(request.resource.data.name))
           || (changed().hasOnly(['product'])
               && request.resource.data.product in ['watch', 'pods', 'holo']
-              && (session().stage == 'elegir'
-                  || (resource.data.product == null && session().stage != 'lobby')))
+              && (session().stage == 'lobby' || resource.data.product == null))
           || canVote(1) || canVote(2) || canVote(3)
         );
 

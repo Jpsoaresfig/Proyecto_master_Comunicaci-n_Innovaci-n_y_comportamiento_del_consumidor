@@ -12,18 +12,19 @@ Duración aproximada: 5–10 minutos.
 
 | Etapa | Pantalla del presentador | Móvil de los participantes |
 |---|---|---|
-| 1. Entrada | QR, enlace, número y lista de participantes | Escriben un apodo |
-| 2. Producto | Cuántos eligieron cada producto | Eligen SmartWatch X (€199), SoundPods (€149) o HoloMini (€299) |
-| 3. Ronda 1 — Innovación (p) | Progreso de respuestas | «¿Comprarías este producto ahora, aunque no conozcas a nadie que ya lo haya comprado?» |
+| 1. Entrada | QR, código de acceso, participantes y cuántos eligieron cada producto | Escriben un apodo y eligen SmartWatch X (€199), SoundPods (€149) o HoloMini (€299) |
+| 2. Ronda 1 — Innovación (p) | Progreso de respuestas | «¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?» |
 | Resultados 1 | Adopción por producto | — |
-| 4. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron y deciden si cambian de opinión |
-| Resultados 2 | Adopción acumulada por ronda | — |
-| 5. Ronda 3 — Última decisión | Progreso de respuestas | Última oportunidad de compra |
+| 3. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron y deciden si mantienen o cambian su decisión |
+| Resultados 2 | Nuevas adopciones y adopción acumulada | — |
+| 4. Ronda 3 — Saturación | Progreso de respuestas | Última oportunidad de compra |
 | Final | Producto más elegido, adopción y %, evolución por ronda, curva S | Resumen personal |
 | Modelo de Bass | Fórmula `f(t) = [p + qF(t)][1 − F(t)]`, p, q, saturación y curva teórica | — |
 
 Controles del presentador: botón principal (avanzar / revelar resultados), **Atrás**, **Reiniciar**
 (pide confirmación) y **QR** (muestra el código en grande para quien llegue tarde).
+Mientras una ronda está abierta, cada participante puede cambiar su respuesta; al revelar los resultados queda fija.
+Quien abra la web sin el QR puede escribir el **código de acceso** que aparece debajo del QR.
 Atajos de teclado: `→` avanzar, `←` atrás, `Q` mostrar QR — funciona con un presentador de diapositivas.
 
 > La votación de la clase es una demostración participativa simplificada, no una estimación
@@ -70,7 +71,7 @@ sessions/{sid}/participants/{uid}   { name, product, v1, v2, v3, t }  ← un doc
   para el usuario y solo sirve para darle un identificador (`uid`) que las reglas comprueban.
 - Solo el navegador del presentador que creó la sesión puede cambiar la etapa o reiniciarla.
 - Cada participante solo puede crear y modificar **su propio** documento.
-- Cada voto solo puede escribirse **una vez** (de vacío a sí/no), **solo mientras su ronda está abierta**,
+- Cada voto solo puede escribirse o cambiarse **mientras su ronda está abierta**,
   y no se puede volver a «comprar» si ya se compró en una ronda anterior.
 - Fuera de `sessions` todo queda cerrado; sin acceso anónimo no se puede leer ni escribir nada.
 - En el frontend solo está la configuración web pública de Firebase (no es una credencial de administrador).

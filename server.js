@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_FILE = path.join(__dirname, 'data', 'state.json');
 
-const STAGES = ['lobby', 'elegir', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
+const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
 const PRODUCTS = ['watch', 'pods', 'holo'];
 
 // ---------- Estado ----------
@@ -140,9 +140,8 @@ async function handleApi(req, res, url) {
     const p = state.participants[id];
     if (!p) return sendJson(res, 404, { error: 'Participante no encontrado' });
     if (!PRODUCTS.includes(body.product)) return sendJson(res, 400, { error: 'Producto inválido' });
-    const stageIdx = STAGES.indexOf(state.stage);
-    // Se puede cambiar libremente durante "elegir"; después solo quien aún no eligió (llegó tarde).
-    if (stageIdx < 1 || (p.product && state.stage !== 'elegir')) return sendJson(res, 409, { error: 'Ya no se puede cambiar' });
+    // Se puede cambiar libremente en la entrada; después solo quien aún no eligió (llegó tarde).
+    if (p.product && state.stage !== 'lobby') return sendJson(res, 409, { error: 'Ya no se puede cambiar' });
     p.product = body.product;
     changed();
     return sendJson(res, 200, { ok: true });
@@ -155,7 +154,6 @@ async function handleApi(req, res, url) {
     if (state.stage !== 'r' + round) return sendJson(res, 409, { error: 'Esta ronda no está abierta' });
     const a = adoptedRound(p);
     if (a !== -1 && a < round - 1) return sendJson(res, 409, { error: 'Ya compraste' });
-    if (p.votes[round - 1] !== null) return sendJson(res, 409, { error: 'Ya respondiste' });
     p.votes[round - 1] = !!body.buy;
     changed();
     return sendJson(res, 200, { ok: true });
