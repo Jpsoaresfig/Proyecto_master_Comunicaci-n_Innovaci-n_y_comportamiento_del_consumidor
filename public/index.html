@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0d14">
+<title>Bass Challenge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<div class="phone" id="app"><div class="center"><p class="muted"><span class="wait-dot"></span>Conectando…</p></div></div>
+
+<script type="module">
+import { connect, PRODUCTS, productById, adoptedRound, canChoose, canVote, stats, esc, pct, store } from './common.js';
+
+const app = document.getElementById('app');
+let id = store('bass_id');
+if (!id) { id = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store('bass_id', id); }
+const myId = () => (state && state.me) || id;
+let state = null, api = null, lastHtml = '', busy = false, error = '', rejoining = false;
+
+const header = (p) => `<header><div class="brand">BASS <b>CHALLENGE</b></div>${p ? `<div class="who">${esc(p.name)}</div>` : ''}</header>`;
+const pic = (prod, cls = 'pic') => `<div class="${cls}" style="background:${prod.color}22;color:${prod.color}">${prod.icon}</div>`;
+const miniProd = (prod) => `<div class="card mini-prod">${pic(prod)}<div><div style="font-weight:700">${prod.name}</div><div class="muted" style="font-size:14px">${prod.desc} · ${prod.price}</div></div></div>`;
+const waitScreen = (title, text) => `<div class="center fade-in"><span class="tag"><i></i>En espera</span><h1>${title}</h1><p>${text}</p><p class="muted"><span class="wait-dot"></span>La pantalla avanzará automáticamente.</p></div>`;
+
+function socialBox(s, prod) {
+  const mine = s.byProduct.find((x) => x.id === prod.id);
+  const others = s.byProduct.filter((x) => x.id !== prod.id);
+  return `<div class="card social">
+    <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">Ya compraron ${prod.name}</div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin-top:8px"><span class="big num">${mine.adopters}</span><span class="muted">de ${mine.chose} personas (${mine.share}%)</span></div>
+    <div class="bar-track"><div class="bar-fill" style="width:${mine.share}%;background:${prod.color}"></div></div>
+    ${others.map((o) => `<div class="row"><span>${o.name}</span><span class="num">${o.adopters} de ${o.chose} compraron</span></div>`).join('')}
+  </div>`;
+}
+
+function question(round, p, prod) {
+  const s = stats(state, round - 1);
+  const texts = {
+    1: { tag: 'Ronda 1', q: '¿Comprarías este producto ahora, aunque no conozcas a nadie que ya lo haya comprado?', yes: 'Sí, lo compraría', no: 'No, esperaría' },
+    2: { tag: 'Ronda 2', q: 'Sabiendo que otras personas ya compraron este producto, ¿cambiarías tu decisión?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
+    3: { tag: 'Última ronda', q: 'Con los resultados actualizados, ¿comprarías el producto ahora?', yes: 'Sí, lo compraría', no: 'No, no lo compraría' },
+  }[round];
+  const a = adoptedRound(p);
+  if (a !== -1 && a < round - 1) {
+    return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
+      <h1>Ya compraste este producto en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
+      ${socialBox(s, prod)}</div>`;
+  }
+  if (p.votes[round - 1] !== null) {
+    return `<div class="center fade-in"><div class="ok-badge">✓</div><h1>Respuesta registrada</h1>
+      <p>Tu respuesta: <b style="color:var(--text)">${p.votes[round - 1] ? texts.yes : texts.no}</b>.</p>
+      <p class="muted"><span class="wait-dot"></span>Mira la pantalla principal.</p></div>`;
+  }
+  return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
+    <h1>${texts.q}</h1>
+    ${round > 1 ? socialBox(s, prod) : ''}
+    <div class="choice">
+      <button class="btn yes" data-vote="1" ${busy ? 'disabled' : ''}>${texts.yes}</button>
+      <button class="btn ghost" data-vote="0" ${busy ? 'disabled' : ''}>${texts.no}</button>
+    </div><div class="err">${esc(error)}</div></div>`;
+}
+
+function view() {
+  if (state.noSession) {
+    return header() + `<div class="center fade-in"><span class="tag"><i></i>Bass Challenge</span><h1>Escanea el código QR</h1><p>Abre el enlace desde el código QR que aparece en la pantalla del presentador.</p></div>`;
+  }
+  const p = state.participants[myId()];
+  if (!p) {
+    return header() + `<div class="center fade-in">
+      <span class="tag"><i></i>Modelo de difusión de Bass</span>
+      <h1>Únete al desafío</h1><p>Escribe un apodo para participar en la simulación.</p>
+      <form id="join" class="stack"><input class="field" id="name" maxlength="18" autocomplete="off" placeholder="Tu apodo" value="${esc(store('bass_name') || '')}" required>
+      <button class="btn" ${busy ? 'disabled' : ''}>Entrar</button></form><div class="err">${esc(error)}</div></div>`;
+  }
+  const st = state.stage;
+  const prod = productById(p.product);
+  if (st === 'lobby') return header(p) + waitScreen(`¡Listo, ${esc(p.name)}!`, 'Ya estás dentro. La dinámica comenzará en breve.');
+
+  if (!prod || (st === 'elegir')) {
+    if (!canChoose(state, p)) return header(p) + waitScreen('Espera', 'Esperando la siguiente etapa.');
+    return header(p) + `<div class="fade-in"><span class="tag"><i></i>Elige un producto</span>
+      <h1>¿Qué producto te interesa más?</h1><p>Puedes cambiar tu elección hasta que empiece la ronda.</p>
+      <div class="stack">${PRODUCTS.map((x) => `<button class="prod-opt ${p.product === x.id ? 'sel' : ''}" style="--c:${x.color}" data-prod="${x.id}">
+        ${pic(x)}<div><div class="t">${x.name}</div><div class="d">${x.desc}</div></div><div class="pr">${x.price}</div></button>`).join('')}</div>
+      <div class="err">${esc(error)}</div>
+      ${p.product ? '<p class="muted" style="margin-top:14px"><span class="wait-dot"></span>Elección guardada. Espera la ronda 1.</p>' : ''}</div>`;
+  }
+
+  if (st === 'r1' || st === 'r2' || st === 'r3') return header(p) + question(Number(st[1]), p, prod);
+
+  if (st === 'res1' || st === 'res2') {
+    return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Resultados</span><h1>Mira la pantalla</h1>
+      <p>El presentador está mostrando cuántas personas compraron cada producto.</p>${socialBox(stats(state, st === 'res1' ? 1 : 2), prod)}</div>`;
+  }
+
+  // final / bass
+  const a = adoptedRound(p);
+  const mine = stats(state).byProduct.find((x) => x.id === prod.id);
+  return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Fin de la simulación</span>
+    <h1>${a === -1 ? 'No compraste el producto' : `Compraste en la ronda ${a + 1}`}</h1>
+    <p>${a === 0 ? 'Actuaste como <b style="color:var(--text)">innovador</b>: compraste sin influencia social (p).'
+      : a > 0 ? 'Actuaste como <b style="color:var(--text)">imitador</b>: te influyó la adopción de otros (q).'
+      : 'Formas parte del mercado que aún no adoptó el producto.'}</p>
+    ${miniProd(prod)}
+    <p>Adopción final de ${prod.name}: <b style="color:var(--text)">${mine.adopters} de ${mine.chose} (${mine.share}%)</b>.</p>
+    <p class="muted">¡Gracias por participar! Mira la pantalla principal.</p></div>`;
+}
+
+function render() {
+  if (!state) return;
+  const html = view();
+  if (html !== lastHtml) { app.innerHTML = html; lastHtml = html; }
+}
+
+async function act(fn) {
+  if (busy) return;
+  busy = true; error = ''; render();
+  try { await fn(); } catch (e) { error = e.message || 'Error de conexión'; }
+  busy = false; render();
+}
+
+app.addEventListener('submit', (e) => {
+  if (e.target.id !== 'join') return;
+  e.preventDefault();
+  const name = document.getElementById('name').value.trim();
+  if (!name) return;
+  store('bass_name', name);
+  act(() => api.join(myId(), name));
+});
+app.addEventListener('click', (e) => {
+  const prodBtn = e.target.closest('[data-prod]');
+  if (prodBtn) return act(() => api.choose(myId(), prodBtn.dataset.prod));
+  const voteBtn = e.target.closest('[data-vote]');
+  if (voteBtn) {
+    const round = Number(state.stage[1]);
+    if (canVote(state, state.participants[myId()], round)) act(() => api.vote(myId(), round, voteBtn.dataset.vote === '1'));
+  }
+});
+
+api = await connect((s) => {
+  state = s;
+  // Si la simulación se reinició, vuelve a entrar automáticamente con el mismo apodo.
+  const saved = store('bass_name');
+  if (api && !s.noSession && !s.participants[s.me || id] && saved && !rejoining && lastHtml && !lastHtml.includes('id="join"')) {
+    rejoining = true;
+    api.join(s.me || id, saved).catch(() => {}).finally(() => { rejoining = false; });
+  }
+  render();
+});
+</script>
+</body>
+</html>

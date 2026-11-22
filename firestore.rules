@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// Reglas de BASS CHALLENGE.
+// - Solo se puede acceder a la colección "sessions"; todo lo demás queda cerrado.
+// - Cada dispositivo usa acceso anónimo (invisible, sin registro) para tener un uid.
+// - El presentador (owner) es el único que cambia la etapa o reinicia su sesión.
+// - Cada participante solo crea/modifica SU documento, y solo vota una vez por ronda,
+//   únicamente mientras esa ronda está abierta.
+//
+// IMPORTANTE: si el proyecto ya tiene reglas para otra aplicación, NO las sustituyas:
+// copia solo el bloque "match /sessions/{sid} { ... }" dentro de tu "match /databases/{database}/documents".
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /sessions/{sid} {
+      function stages() {
+        return ['lobby', 'elegir', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
+      }
+      function isOwner() {
+        return request.auth != null && resource.data.owner == request.auth.uid;
+      }
+
+      allow get: if request.auth != null;
+
+      allow create: if request.auth != null
+        && sid.matches('^[a-z0-9]{4,12}$')
+        && request.resource.data.keys().hasOnly(['owner', 'stage', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.stage == 'lobby'
+        && request.resource.data.createdAt is int;
+
+      allow update: if isOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stage'])
+        && request.resource.data.stage in stages();
+
+      allow delete: if false;
+
+      match /participants/{uid} {
+        function session() {
+          return get(/databases/$(database)/documents/sessions/$(sid)).data;
+        }
+        function isMe() {
+          return request.auth != null && request.auth.uid == uid;
+        }
+        function changed() {
+          return request.resource.data.diff(resource.data).affectedKeys();
+        }
+        function validName(n) {
+          return n is string && n.size() >= 1 && n.size() <= 18;
+        }
+        // Votar en la ronda k: solo una vez (de null a true/false), con la ronda abierta,
+        // con producto elegido y sin haber comprado en una ronda anterior.
+        function canVote(k) {
+          return changed().hasOnly(['v' + k])
+            && resource.data['v' + k] == null
+            && request.resource.data['v' + k] is bool
+            && session().stage == 'r' + k
+            && resource.data.product != null
+            && (k < 2 || resource.data.v1 != true)
+            && (k < 3 || resource.data.v2 != true);
+        }
+
+        allow read: if request.auth != null;
+
+        allow create: if isMe()
+          && session().stage in stages()
+          && request.resource.data.keys().hasOnly(['name', 'product', 'v1', 'v2', 'v3', 't'])
+          && validName(request.resource.data.name)
+          && request.resource.data.product == null
+          && request.resource.data.v1 == null
+          && request.resource.data.v2 == null
+          && request.resource.data.v3 == null
+          && request.resource.data.t is int;
+
+        allow update: if isMe() && (
+          (changed().hasOnly(['name']) && validName(request.resource.data.name))
+          || (changed().hasOnly(['product'])
+              && request.resource.data.product in ['watch', 'pods', 'holo']
+              && (session().stage == 'elegir'
+                  || (resource.data.product == null && session().stage != 'lobby')))
+          || canVote(1) || canVote(2) || canVote(3)
+        );
+
+        // Solo el presentador puede borrar participantes (botón "Reiniciar").
+        allow delete: if request.auth != null && session().owner == request.auth.uid;
+      }
+    }
+  }
+}

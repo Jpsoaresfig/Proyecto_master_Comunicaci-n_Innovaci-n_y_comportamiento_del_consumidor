@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bass Challenge · Presentador</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="vendor/qrcode.js"></script>
+<style>
+  #qrOverlay { position: fixed; inset: 0; background: rgba(5,8,14,.88); display: none; place-items: center; z-index: 40; backdrop-filter: blur(6px); }
+  #qrOverlay.on { display: grid; }
+  #qrOverlay .qr-box { width: min(70vh, 600px); }
+  #qrOverlay .qr-url { max-width: none; font-size: 22px; }
+</style>
+</head>
+<body>
+<div class="deck">
+  <div class="topbar">
+    <div class="brand">BASS <b>CHALLENGE</b></div>
+    <div class="steps" id="steps"></div>
+    <div class="people"><span class="dot"></span><span id="people" class="num">0</span>&nbsp;participantes</div>
+  </div>
+  <main class="view" id="view"><p class="muted"><span class="wait-dot"></span>Conectando…</p></main>
+  <div class="controls">
+    <span class="url" id="url"></span>
+    <button class="cbtn" id="qrBtn" title="Mostrar el QR (tecla Q)">QR</button>
+    <button class="cbtn danger" id="reset">Reiniciar</button>
+    <button class="cbtn" id="prev">← Atrás</button>
+    <button class="cbtn primary" id="next">Iniciar dinámica →</button>
+  </div>
+</div>
+<div id="qrOverlay"><div><div class="qr-box" id="qrBig"></div><div class="qr-url" id="qrBigUrl"></div></div></div>
+
+<script type="module">
+import { connect, STAGES, STAGE_LABELS, PRODUCTS, stats, adoptedRound, illustrativePQ, bassCurve, esc, pct, enableTooltips } from './common.js';
+
+const $ = (id) => document.getElementById(id);
+const key = new URLSearchParams(location.search).get('key') || '';
+let state = null, api = null, lastHtml = '', lastStage = null;
+const fmt = (x, d = 2) => (x == null ? '—' : x.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d }));
+
+// ---------- QR ----------
+function joinUrl() {
+  if (state && state.sessionId) return location.origin + '/?s=' + state.sessionId; // modo Firebase
+  if (state && state.publicUrl) return state.publicUrl + '/';
+  const local = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+  if (!local) return location.origin + '/';
+  return ((state && state.lanUrls[0]) || location.origin) + '/';
+}
+function qrSvg(text) {
+  const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
+  const n = qr.getModuleCount(); let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+  return `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges"><path d="${d}" fill="#0a0d14"/></svg>`;
+}
+
+// ---------- Gráficos ----------
+const ROUND_ALPHA = [1, 0.62, 0.36];
+function roundLegend(upTo) {
+  return `<div class="legend">${[0, 1, 2].slice(0, upTo).map((k) =>
+    `<span><i style="background:rgba(238,241,246,${ROUND_ALPHA[k] * 0.9})"></i>Compras en ronda ${k + 1}</span>`).join('')}
+    <span><i style="background:var(--surface-2);border:1px solid var(--border)"></i>Aún no compraron</span></div>`;
+}
+function hbars(s, upTo) {
+  return roundLegend(upTo) + s.byProduct.map((p) => `
+    <div class="hbar">
+      <div class="name"><span class="sw" style="background:${p.color}"></span><div>${p.name}<small>${p.chose} lo eligieron</small></div></div>
+      <div class="htrack">${p.perRound.slice(0, upTo).map((n, k) => n ? `<div class="hseg" style="width:${(n / p.chose) * 100}%;background:${p.color};opacity:${ROUND_ALPHA[k]};animation-delay:${k * 0.25}s"
+        data-tip="<b>${p.name}</b> · ronda ${k + 1}<br>${n} compra${n === 1 ? '' : 's'} (${pct(n, p.chose)}% de su mercado)"></div>` : '').join('')}</div>
+      <div class="val"><b class="num">${p.share}%</b><span class="num">${p.adopters} de ${p.chose}</span></div>
+    </div>`).join('');
+}
+
+// Curva S de adopción acumulada (% del mercado de cada producto) por ronda.
+function sCurve(s) {
+  const W = 760, H = 330, L = 50, R = 170, T = 14, B = 40;
+  const x = (i) => L + (i / 3) * (W - L - R);
+  const y = (v) => T + (1 - v / 100) * (H - T - B);
+  let g = '';
+  for (const v of [0, 25, 50, 75, 100]) g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" ${v === 100 ? 'stroke-dasharray="4 5"' : ''}/><text class="axis-lbl" x="${L - 10}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`;
+  g += `<text class="axis-lbl" x="${W - R + 8}" y="${y(100) + 4}">Saturación</text>`;
+  ['Inicio', 'Ronda 1', 'Ronda 2', 'Ronda 3'].forEach((t, i) => { g += `<text class="axis-lbl" x="${x(i)}" y="${H - 12}" text-anchor="middle">${t}</text>`; });
+  const series = s.byProduct.filter((p) => p.chose).map((p) => ({ p, vals: p.cumulative.map((c) => pct(c, p.chose)) }));
+  // Etiquetas finales sin solaparse
+  const labels = series.map((sr) => ({ sr, y: y(sr.vals[3]) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 22);
+  let lines = '', marks = '';
+  series.forEach(({ p, vals }, si) => {
+    const pts = vals.map((v, i) => [x(i), y(v)]);
+    let len = 0; for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    lines += `<path class="line" style="--len:${Math.ceil(len) + 2};animation-delay:${si * 0.15}s" stroke="${p.color}" d="M${pts.map((q) => q.join(' ')).join('L')}"/>`;
+    pts.forEach(([px, py], i) => {
+      marks += `<circle cx="${px}" cy="${py}" r="5.5" fill="${p.color}" stroke="var(--surface)" stroke-width="2"/>
+        <circle class="hit" cx="${px}" cy="${py}" r="16" data-tip="<b>${p.name}</b> · ${['inicio', 'ronda 1', 'ronda 2', 'ronda 3'][i]}<br>${p.cumulative[i]} de ${p.chose} adoptaron (${vals[i]}%)"/>`;
+    });
+  });
+  const lbl = labels.map(({ sr, y: ly }) => `<text x="${x(3) + 14}" y="${ly + 5}" style="font-size:15px;font-weight:600;fill:var(--text)">${sr.p.name} <tspan style="fill:var(--text-2);font-weight:500">${sr.vals[3]}%</tspan></text>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Curva S de adopción acumulada">${g}${lines}${marks}${lbl}</svg>`;
+}
+
+// Curva teórica de Bass: nuevas adopciones apiladas (innovación vs. imitación) y adopción acumulada F(t).
+function bassCharts(p, q) {
+  const T = 16, data = bassCurve(p, q, T);
+  const W = 560, L = 46, R = 16, Tp = 12, B = 34;
+  const x = (t) => L + (t / T) * (W - L - R);
+  const H1 = 230, maxF = Math.max(...data.map((d) => d.innov + d.imit)) * 1.12;
+  const y1 = (v) => Tp + (1 - v / maxF) * (H1 - Tp - B);
+  const area = (lo, hi) => `M${data.map((d) => `${x(d.t)} ${y1(hi(d))}`).join('L')}L${data.slice().reverse().map((d) => `${x(d.t)} ${y1(lo(d))}`).join('L')}Z`;
+  let g1 = '';
+  for (let i = 0; i <= 4; i++) { const v = (maxF / 1.12) * i / 4; g1 += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y1(v)}" y2="${y1(v)}"/><text class="axis-lbl" x="${L - 8}" y="${y1(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`; }
+  for (let t = 0; t <= T; t += 4) g1 += `<text class="axis-lbl" x="${x(t)}" y="${H1 - 10}" text-anchor="middle">t=${t}</text>`;
+  const peak = data.reduce((a, d) => (d.f > (a.f || 0) ? d : a), {});
+  const hits1 = data.slice(1).map((d) => `<rect class="hit" x="${x(d.t) - (W - L - R) / T / 2}" y="${Tp}" width="${(W - L - R) / T}" height="${H1 - Tp - B}"
+    data-tip="<b>t = ${d.t}</b><br>Nuevas por innovación (p): ${fmt(d.innov * 100, 1)}%<br>Nuevas por imitación (q): ${fmt(d.imit * 100, 1)}%<br>Acumulado F(t): ${fmt(d.F * 100, 0)}%"/>`).join('');
+  const c1 = `<svg class="chart" viewBox="0 0 ${W} ${H1}" width="100%" role="img" aria-label="Nuevas adopciones por periodo">${g1}
+    <path d="${area(() => 0, (d) => d.innov)}" fill="var(--innov)" opacity=".9"/>
+    <path d="${area((d) => d.innov, (d) => d.innov + d.imit)}" fill="var(--imit)" opacity=".9" stroke="var(--surface)" stroke-width="2"/>
+    <line x1="${x(peak.t)}" x2="${x(peak.t)}" y1="${y1(peak.f) - 6}" y2="${H1 - B}" stroke="var(--text-2)" stroke-dasharray="3 4"/>
+    <text x="${x(peak.t) + 8}" y="${y1(peak.f) + 2}" style="font-size:13px;fill:var(--text)">Pico de ventas</text>
+    <text x="${W - R - 4}" y="${y1(peak.f * 0.95)}" text-anchor="end" style="font-size:13px;fill:var(--text-2)">Saturación: quedan</text><text x="${W - R - 4}" y="${y1(peak.f * 0.95) + 17}" text-anchor="end" style="font-size:13px;fill:var(--text-2)">pocos por adoptar</text>
+    ${hits1}</svg>`;
+  const H2 = 180, y2 = (v) => Tp + (1 - v) * (H2 - Tp - B);
+  let g2 = '';
+  for (const v of [0, .5, 1]) g2 += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y2(v)}" y2="${y2(v)}" ${v === 1 ? 'stroke-dasharray="4 5"' : ''}/><text class="axis-lbl" x="${L - 8}" y="${y2(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+  for (let t = 0; t <= T; t += 4) g2 += `<text class="axis-lbl" x="${x(t)}" y="${H2 - 10}" text-anchor="middle">t=${t}</text>`;
+  const d2 = 'M' + data.map((d) => `${x(d.t)} ${y2(d.F)}`).join('L');
+  const hits2 = data.map((d) => `<circle class="hit" cx="${x(d.t)}" cy="${y2(d.F)}" r="12" data-tip="<b>t = ${d.t}</b><br>Adopción acumulada F(t): ${fmt(d.F * 100, 0)}%"/>`).join('');
+  const c2 = `<svg class="chart" viewBox="0 0 ${W} ${H2}" width="100%" role="img" aria-label="Adopción acumulada F(t)">${g2}
+    <path class="line" style="--len:900" stroke="var(--accent)" d="${d2}"/>${hits2}</svg>`;
+  return { c1, c2 };
+}
+
+// ---------- Vistas por etapa ----------
+function eligible(round) {
+  return Object.values(state.participants).filter((p) => p.product && !(adoptedRound(p) !== -1 && adoptedRound(p) < round - 1));
+}
+function progressCard(round) {
+  const el = eligible(round);
+  const answered = el.filter((p) => p.votes[round - 1] !== null).length;
+  return `<div class="card progress"><div class="muted" style="font-weight:600">Respuestas recibidas</div>
+    <div class="big num">${answered}<span class="muted" style="font-size:40px"> / ${el.length}</span></div>
+    <div class="bar-track"><div class="bar-fill" style="width:${pct(answered, el.length)}%;background:var(--accent);animation:none;transition:width .4s"></div></div>
+    <div class="muted">${round > 1 ? 'Solo responden quienes aún no han comprado.' : 'Responde en tu móvil.'}</div></div>`;
+}
+
+const VIEWS = {
+  lobby() {
+    const u = joinUrl();
+    const names = Object.values(state.participants).sort((a, b) => a.t - b.t);
+    const lanOnly = !state.publicUrl && !state.sessionId && ['localhost', '127.0.0.1'].includes(location.hostname);
+    return `<div class="lobby">
+      <div><div class="qr-box">${qrSvg(u)}</div><div class="qr-url">${esc(u.replace(/\/$/, ''))}</div></div>
+      <div><span class="tag"><i></i>Modelo de difusión de Bass · 1969</span>
+        <h1 class="hero-title">Escanea el código<br>y únete al desafío</h1>
+        <p class="lead">Simularemos en directo cómo se difunde una innovación en un mercado: quién compra primero, quién imita y cuándo se satura.</p>
+        <div class="count-big num">${names.length}</div><div class="muted" style="font-size:18px">participantes conectados</div>
+        <div class="chips">${names.map((p) => `<span class="chip">${esc(p.name)}</span>`).join('')}</div>
+        ${lanOnly ? '<div class="note">Enlace de red local: los móviles deben estar en la misma red Wi-Fi que este ordenador.</div>' : ''}
+      </div></div>`;
+  },
+  elegir() {
+    const list = Object.values(state.participants);
+    const chosen = list.filter((p) => p.product).length;
+    return `<span class="tag"><i></i>Etapa 2 · Elección de producto</span>
+      <h1 class="hero-title" style="font-size:46px">Elige el producto que más te interesa</h1>
+      <p class="lead"><span class="num">${chosen}</span> de <span class="num">${list.length}</span> participantes ya eligieron.</p>
+      <div class="prod-grid">${PRODUCTS.map((p) => {
+        const n = list.filter((x) => x.product === p.id).length;
+        return `<div class="card prod-card" style="--c:${p.color}"><div class="pic" style="background:${p.color}22;color:${p.color}">${p.icon}</div>
+          <h3>${p.name}</h3><div class="d">${p.desc}</div><div class="pr">${p.price}</div>
+          <div class="cnt"><span>Lo eligieron</span><b class="num">${n}</b></div></div>`;
+      }).join('')}</div>`;
+  },
+  r1() {
+    return `<div class="round"><div><span class="tag"><i></i>Ronda 1 · Innovación</span>
+      <h1 class="question">¿Comprarías este producto ahora, aunque no conozcas a nadie que ya lo haya comprado?</h1>
+      <div class="card concept" style="--c:var(--innov)"><h3>Coeficiente de innovación (p)</h3>
+      <p>Mide la adopción por iniciativa propia: los <b>innovadores</b> compran sin depender de la opinión ni del ejemplo de otros.</p></div></div>
+      ${progressCard(1)}</div>`;
+  },
+  res1() {
+    const s = stats(state, 1);
+    return `<span class="tag"><i></i>Resultados · Ronda 1</span>
+      <h1 class="hero-title" style="font-size:44px">Los innovadores ya compraron</h1>
+      <div class="res"><div>${hbars(s, 1)}</div><div>
+        <div class="card kpi"><div class="lbl">Compraron sin influencia social</div><div class="v num">${pct(s.perRound[0], s.N)}%</div>
+        <p>${s.perRound[0]} de ${s.N} participantes. Esta proporción ilustra el <b>coeficiente de innovación (p)</b>.</p></div>
+        <div class="card kpi"><div class="lbl">Siguiente paso</div><p>Ahora todos verán cuántas personas compraron cada producto. ¿Influirá en su decisión?</p></div>
+      </div></div>`;
+  },
+  r2() {
+    const s = stats(state, 1);
+    return `<div class="round"><div><span class="tag"><i></i>Ronda 2 · Influencia social</span>
+      <h1 class="question">Sabiendo que otras personas ya compraron este producto, ¿cambiarías tu decisión?</h1>
+      <div class="card concept" style="--c:var(--imit)"><h3>Coeficiente de imitación (q)</h3>
+      <p>Mide la adopción influida por quienes ya adoptaron: boca a boca, prueba social y presión del entorno. Cuantos más adoptantes hay, más fuerte es el efecto.</p></div>
+      <p class="muted" style="margin-top:16px;font-size:16px">Ya compraron: ${s.byProduct.map((p) => `<b style="color:var(--text)">${p.name}</b> ${p.adopters}/${p.chose}`).join(' · ')}</p></div>
+      ${progressCard(2)}</div>`;
+  },
+  res2() {
+    const s = stats(state, 2);
+    return `<span class="tag"><i></i>Resultados · Ronda 2</span>
+      <h1 class="hero-title" style="font-size:44px">El efecto de la imitación</h1>
+      <div class="res"><div>${hbars(s, 2)}</div><div>
+        <div class="card kpi"><div class="lbl">Nuevas compras en la ronda 2</div><div class="v num">+${s.perRound[1]}</div>
+        <p>Personas que cambiaron de opinión al ver que otros ya habían comprado: efecto del <b>coeficiente de imitación (q)</b>.</p></div>
+        <div class="card kpi"><div class="lbl">Adopción acumulada</div><div class="v num">${pct(s.adopters, s.N)}%</div><p>${s.adopters} de ${s.N} participantes ya adoptaron algún producto.</p></div>
+      </div></div>`;
+  },
+  r3() {
+    const s = stats(state, 2);
+    return `<div class="round"><div><span class="tag"><i></i>Ronda 3 · Última decisión</span>
+      <h1 class="question">Con los resultados actualizados, ¿comprarías el producto ahora?</h1>
+      <div class="card concept" style="--c:var(--accent)"><h3>Hacia la saturación</h3>
+      <p>Cada vez quedan menos personas por adoptar. Aunque la influencia social es mayor, el número de nuevas compras tiende a disminuir.</p></div>
+      <p class="muted" style="margin-top:16px;font-size:16px">Ya compraron: ${s.byProduct.map((p) => `<b style="color:var(--text)">${p.name}</b> ${p.adopters}/${p.chose}`).join(' · ')}</p></div>
+      ${progressCard(3)}</div>`;
+  },
+  final() {
+    const s = stats(state, 3);
+    const most = Math.max(...s.byProduct.map((p) => p.chose));
+    const winner = (list) => (list.length === 1 ? list[0].name : list.length ? 'Empate' : '—');
+    const topL = s.byProduct.filter((p) => p.chose === most && most > 0);
+    const best = Math.max(...s.byProduct.map((p) => p.share));
+    const bestL = s.byProduct.filter((p) => p.share === best && p.chose);
+    const top = winner(topL), topAdopt = winner(bestL);
+    const tieNote = (list) => (list.length > 1 ? list.map((p) => p.name).join(', ') + ': ' : '');
+    return `<span class="tag"><i></i>Resultados finales</span>
+      <div class="kpis4">
+        <div class="card kpi"><div class="lbl">Producto más elegido</div><div class="v name">${top}</div><p>${tieNote(topL)}${most} participantes${topL.length > 1 ? ' cada uno' : ''}</p></div>
+        <div class="card kpi"><div class="lbl">Mayor adopción</div><div class="v name">${topAdopt}</div><p>${tieNote(bestL)}${best}% de su mercado</p></div>
+        <div class="card kpi"><div class="lbl">Adopción total</div><div class="v num">${pct(s.adopters, s.N)}%</div><p>${s.adopters} de ${s.N} participantes</p></div>
+        <div class="card kpi"><div class="lbl">Compras por ronda</div><div class="v num">${s.perRound.join(' → ')}</div><p>Ronda 1 → 2 → 3</p></div>
+      </div>
+      <div class="final-grid">
+        <div class="card panel"><h3>Curva S de adopción acumulada</h3><div class="sub">% del mercado de cada producto (quienes lo eligieron) que ya compró</div>${sCurve(s)}</div>
+        <div class="card panel"><h3>Evolución de las compras</h3><div class="sub">Nuevas compras en cada ronda</div>
+          <table class="data"><thead><tr><th>Producto</th><th>Eligieron</th><th>R1</th><th>R2</th><th>R3</th><th>Total</th><th>%</th></tr></thead><tbody>
+          ${s.byProduct.map((p) => `<tr><td><span class="sw" style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${p.color};margin-right:8px"></span>${p.name}</td>
+            <td>${p.chose}</td>${p.perRound.map((n) => `<td>${n}</td>`).join('')}<td class="strong">${p.adopters}</td><td class="strong">${p.share}%</td></tr>`).join('')}
+          <tr><td class="muted">Total</td><td>${s.N}</td>${s.perRound.map((n) => `<td>${n}</td>`).join('')}<td class="strong">${s.adopters}</td><td class="strong">${pct(s.adopters, s.N)}%</td></tr>
+          </tbody></table>
+          <p class="muted" style="font-size:14px;margin:16px 0 0;line-height:1.5">R1 = innovadores (p). R2 y R3 = adopción influida por otros (q). Si las nuevas compras caen en la ronda 3 es porque queda menos mercado: <b style="color:var(--text-2)">saturación</b>.</p>
+        </div></div>`;
+  },
+  bass() {
+    const s = stats(state, 3);
+    const est = illustrativePQ(s);
+    const { c1, c2 } = bassCharts(0.03, 0.38);
+    return `<span class="tag"><i></i>Modelo de difusión de Bass (1969)</span>
+      <div class="bass-grid"><div>
+        <div class="card formula">f(t) = [ <span class="p">p</span> + <span class="q">q</span>·F(t) ] · [ 1 − F(t) ]
+          <small>f(t): nuevas adopciones en t · F(t): proporción del mercado que ya adoptó</small></div>
+        <div class="concepts3">
+          <div class="card concept" style="--c:var(--innov)"><h3>p · Innovación</h3><p>Adopción por iniciativa propia. Explica las primeras ventas, cuando aún nadie ha comprado.</p></div>
+          <div class="card concept" style="--c:var(--imit)"><h3>q · Imitación</h3><p>Adopción influida por otros. Crece con F(t): cuantos más adoptantes, más contagio social.</p></div>
+          <div class="card concept" style="--c:var(--accent)"><h3>[1 − F(t)] · Saturación</h3><p>Mercado que queda por adoptar. Cuando casi todos ya compraron, las nuevas adopciones caen.</p></div>
+        </div>
+        <div class="card panel" style="margin-top:14px"><h3>Nuestra clase (ilustrativo)</h3>
+          <div class="est"><div><b class="num">${est.p == null ? '—' : fmt(est.p)}</b><span>p ≈ compras R1 / participantes</span></div>
+          <div><b class="num">${est.q == null ? '—' : fmt(est.q)}</b><span>q ≈ (tasa R2 − p) / F(1)</span></div></div>
+          <div class="disclaimer">La votación de la clase es una demostración participativa simplificada (pocas personas, tres rondas, decisiones hipotéticas). No es una estimación estadística rigurosa de p y q, que requiere datos reales de ventas a lo largo del tiempo.</div>
+        </div>
+      </div>
+      <div class="card panel"><h3>Curva teórica de Bass</h3><div class="sub">Valores de referencia típicos: p = 0,03 · q = 0,38 (Sultan, Farley y Lehmann, 1990)</div>
+        <div class="legend"><span><i style="background:var(--innov)"></i>Nuevas por innovación · p·[1−F]</span><span><i style="background:var(--imit)"></i>Nuevas por imitación · q·F·[1−F]</span></div>
+        ${c1}
+        <h3 style="margin-top:14px;font-size:16px">Adopción acumulada F(t): la curva S</h3>${c2}
+      </div></div>`;
+  },
+};
+
+const NEXT_LABEL = {
+  lobby: 'Iniciar dinámica →', elegir: 'Abrir ronda 1 →', r1: 'Revelar resultados →', res1: 'Ronda 2: influencia social →',
+  r2: 'Revelar resultados →', res2: 'Última ronda →', r3: 'Revelar resultados finales →', final: 'Ver modelo de Bass →', bass: 'Fin',
+};
+
+function render() {
+  if (!state) return;
+  const st = state.stage, i = STAGES.indexOf(st);
+  $('steps').innerHTML = STAGE_LABELS.map((l, k) => `<span class="${k === i ? 'now' : k < i ? 'done' : ''}">${l}</span>`).join('');
+  $('people').textContent = Object.keys(state.participants).length;
+  $('next').textContent = NEXT_LABEL[st];
+  $('next').disabled = st === 'bass';
+  $('prev').disabled = i === 0;
+  const u = joinUrl();
+  $('url').textContent = st === 'lobby' ? '' : u.replace(/\/$/, '');
+  if ($('qrOverlay').classList.contains('on')) { $('qrBig').innerHTML = qrSvg(u); $('qrBigUrl').textContent = u.replace(/\/$/, ''); }
+  const html = VIEWS[st]();
+  if (html !== lastHtml || st !== lastStage) {
+    $('view').innerHTML = `<div class="${st !== lastStage ? 'fade-in' : ''}">${html}</div>`;
+    lastHtml = html; lastStage = st;
+  }
+}
+
+async function admin(action) {
+  try { await api.admin(action); }
+  catch (e) { $('url').textContent = '⚠ ' + e.message + (api.mode === 'local' ? ' — abre el enlace con ?key= que muestra la consola' : ''); }
+}
+$('next').onclick = () => admin('next');
+$('prev').onclick = () => admin('prev');
+let armed = null;
+$('reset').onclick = () => {
+  if (armed) { clearTimeout(armed); armed = null; $('reset').textContent = 'Reiniciar'; return admin('reset'); }
+  $('reset').textContent = '¿Confirmar reinicio?';
+  armed = setTimeout(() => { armed = null; $('reset').textContent = 'Reiniciar'; }, 3000);
+};
+const toggleQr = () => { $('qrOverlay').classList.toggle('on'); render(); };
+$('qrBtn').onclick = toggleQr;
+$('qrOverlay').onclick = toggleQr;
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') admin('next');
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') admin('prev');
+  if (e.key.toLowerCase() === 'q') toggleQr();
+});
+
+enableTooltips();
+try {
+  api = await connect((s) => { state = s; render(); }, { key, role: 'presenter' });
+} catch (e) {
+  $('view').innerHTML = `<div class="card panel"><h3>No se pudo conectar con Firebase</h3><p class="muted">${esc(e.message)}</p>
+    <p class="muted">Revisa en la consola de Firebase que Cloud Firestore y el acceso anónimo están activados y que las reglas están publicadas (ver README).</p></div>`;
+}
+</script>
+</body>
+</html>
