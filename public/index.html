@@ -14,7 +14,7 @@
 <div class="phone" id="app"><div class="center"><p class="muted"><span class="wait-dot"></span>Conectando…</p></div></div>
 
 <script type="module">
-import { connect, productById, adoptedRound, canVote, stats, esc, pct, store } from './common.js';
+import { connect, PRODUCTS, NONE, productById, adoptedRound, adoptedProduct, canVote, stats, esc, pct, store } from './common.js';
 
 const app = document.getElementById('app');
 let id = store('bass_id');
@@ -27,42 +27,45 @@ const header = (p) => `<header><div class="brand">BASS <b>CHALLENGE</b></div>${p
 const pic = (prod, cls = 'pic') => `<div class="${cls}" style="background:${prod.color}22;color:${prod.color}">${prod.icon}</div>`;
 const miniProd = (prod) => `<div class="card mini-prod">${pic(prod)}<div><div style="font-weight:700">${prod.name}</div><div class="muted" style="font-size:14px">${prod.desc} · ${prod.price} (precio hipotético)</div></div></div>`;
 
-function socialBox(s, prod) {
-  const mine = s.byProduct.find((x) => x.id === prod.id);
-  const others = s.byProduct.filter((x) => x.id !== prod.id);
+function socialBox(s) {
   return `<div class="card social">
-    <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">Ya compraron ${prod.name}</div>
-    <div style="display:flex;align-items:baseline;gap:10px;margin-top:8px"><span class="big num">${mine.adopters}</span><span class="muted">de ${mine.chose} personas (${mine.share}%)</span></div>
-    <div class="bar-track"><div class="bar-fill" style="width:${mine.share}%;background:${prod.color}"></div></div>
-    ${others.map((o) => `<div class="row"><span>${o.name}</span><span class="num">${o.adopters} de ${o.chose} compraron</span></div>`).join('')}
+    <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">Ya compraron</div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin:8px 0 12px"><span class="big num">${s.adopters}</span><span class="muted">de ${s.N} personas (${s.total.share}%)</span></div>
+    ${s.byProduct.map((p) => `<div class="row"><span>${p.name}</span><b class="num" style="color:var(--text)">${p.adopters}</b></div>
+    <div class="bar-track" style="margin:0 0 8px"><div class="bar-fill" style="width:${p.share}%;background:${p.color}"></div></div>`).join('')}
   </div>`;
 }
 
-function question(round, p, prod) {
+const NONE_LABEL = 'Ninguno por ahora';
+const choiceLabel = (v) => (v === NONE ? NONE_LABEL : productById(v).name);
+
+function question(round, p) {
   const s = stats(state, round - 1);
   const texts = {
-    1: { tag: 'Ronda 1', q: 'Este móvil acaba de salir. En tu próxima compra de móvil, ¿lo comprarías siendo de los primeros, sin saber si otros lo comprarán?', yes: 'Sí, lo compraría', no: 'No, por ahora no lo compraría' },
-    2: { tag: 'Ronda 2', q: 'Ahora que sabes cuántas personas ya lo compraron, ¿lo comprarías en tu próxima compra de móvil?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
-    3: { tag: 'Última ronda', q: 'Con todo lo que has visto y los resultados actualizados, ¿comprarías este móvil?', yes: 'Sí, lo compraría', no: 'No, no lo compraría' },
+    1: { tag: 'Ronda 1', q: 'Estos dos móviles acaban de salir. ¿Cuál comprarías siendo de los primeros, sin saber qué harán los demás?' },
+    2: { tag: 'Ronda 2', q: 'Ahora que sabes cuántas personas ya compraron, ¿comprarías alguno?' },
+    3: { tag: 'Última ronda', q: 'Con todo lo que has visto, ¿comprarías alguno?' },
   }[round];
   const a = adoptedRound(p);
   if (a !== -1 && a < round - 1) {
-    return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
-      <h1>Ya compraste este móvil en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
-      ${socialBox(s, prod)}</div>`;
+    return `<div class="fade-in"><span class="tag"><i></i>${texts.tag}</span>
+      <h1>Ya compraste en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
+      ${miniProd(adoptedProduct(p))}${socialBox(s)}</div>`;
   }
   if (p.votes[round - 1] !== null && editing !== round) {
     return `<div class="center fade-in"><div class="ok-badge">✓</div><h1>Respuesta registrada</h1>
-      <p>Tu respuesta: <b style="color:var(--text)">${p.votes[round - 1] ? texts.yes : texts.no}</b>.</p>
+      <p>Tu respuesta: <b style="color:var(--text)">${choiceLabel(p.votes[round - 1])}</b>.</p>
       <button class="btn ghost" data-edit="${round}" style="margin-top:8px">Cambiar mi respuesta</button>
       <p class="muted"><span class="wait-dot"></span>Puedes cambiarla hasta que se revelen los resultados.</p></div>`;
   }
-  return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
-    <h1>${texts.q}</h1>
-    ${round > 1 ? socialBox(s, prod) : ''}
+  const dis = busy ? 'disabled' : '';
+  return `<div class="fade-in"><span class="tag"><i></i>${texts.tag}</span>
+    <h1 style="font-size:25px">${texts.q}</h1>
+    ${round > 1 ? socialBox(s) : '<p class="muted" style="font-size:14px">Piensa en tu próxima compra de móvil. Precio hipotético.</p>'}
     <div class="choice">
-      <button class="btn yes" data-vote="1" ${busy ? 'disabled' : ''}>${texts.yes}</button>
-      <button class="btn ghost" data-vote="0" ${busy ? 'disabled' : ''}>${texts.no}</button>
+      ${PRODUCTS.map((x) => `<button class="prod-opt" style="--c:${x.color}" data-vote="${x.id}" ${dis}>
+        ${pic(x)}<div><div class="t">${x.name}</div><div class="d">${x.desc}</div></div><div class="pr">${x.price}</div></button>`).join('')}
+      <button class="btn ghost" data-vote="${NONE}" ${dis}>${NONE_LABEL}</button>
     </div><div class="err">${esc(error)}</div></div>`;
 }
 
@@ -82,31 +85,30 @@ function view() {
       <button class="btn" ${busy ? 'disabled' : ''}>Entrar</button></form><div class="err">${esc(error)}</div></div>`;
   }
   const st = state.stage;
-  const prod = productById(p.product);
   if (st === 'lobby') {
-    return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Tu producto</span>
-      <h1>Te ha tocado ${prod.name}</h1><p>Se asigna al azar, mitad y mitad. Imagina que acaba de salir al mercado: lo seguirás durante toda la simulación.</p>
-      ${miniProd(prod)}
+    return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Ya estás dentro</span>
+      <h1>Dos móviles salen al mercado</h1><p>En cada ronda podrás comprar uno o ninguno.</p>
+      ${PRODUCTS.map(miniProd).join('')}
       <p class="muted"><span class="wait-dot"></span>La dinámica comenzará en breve.</p></div>`;
   }
 
-  if (st === 'r1' || st === 'r2' || st === 'r3') return header(p) + question(Number(st[1]), p, prod);
+  if (st === 'r1' || st === 'r2' || st === 'r3') return header(p) + question(Number(st[1]), p);
 
   if (st === 'res1' || st === 'res2') {
     return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Resultados</span><h1>Mira la pantalla</h1>
-      <p>El presentador está mostrando cuántas personas compraron cada producto.</p>${socialBox(stats(state, st === 'res1' ? 1 : 2), prod)}</div>`;
+      <p>El presentador está mostrando cuántas personas compraron cada móvil.</p>${socialBox(stats(state, st === 'res1' ? 1 : 2))}</div>`;
   }
 
   // final / bass / marketing
   const a = adoptedRound(p);
-  const mine = stats(state).byProduct.find((x) => x.id === prod.id);
+  const s = stats(state);
   return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Fin de la simulación</span>
-    <h1>${a === -1 ? 'No compraste el móvil' : `Compraste en la ronda ${a + 1}`}</h1>
+    <h1>${a === -1 ? 'No compraste ningún móvil' : `Compraste en la ronda ${a + 1}`}</h1>
     <p>${a === 0 ? 'Compraste por iniciativa propia, antes de ver las compras de otros: perfil <b style="color:var(--text)">innovador</b> (p).'
       : a > 0 ? 'Compraste después de ver las compras de otros: si eso influyó en ti, tu perfil es <b style="color:var(--text)">imitador</b> (q).'
-      : 'Formas parte del mercado que aún no adoptó el producto.'}</p>
-    ${miniProd(prod)}
-    <p>Adopción final de ${prod.name}: <b style="color:var(--text)">${mine.adopters} de ${mine.chose} (${mine.share}%)</b>.</p>
+      : 'Formas parte del mercado que aún no adoptó: 1 − F(t).'}</p>
+    ${a === -1 ? '' : miniProd(adoptedProduct(p))}
+    <p>Adopción final de la clase: <b style="color:var(--text)">${s.adopters} de ${s.N} (${s.total.share}%)</b>.</p>
     <p class="muted">¡Gracias por participar! Mira la pantalla principal.</p></div>`;
 }
 
@@ -144,7 +146,7 @@ app.addEventListener('click', (e) => {
   const voteBtn = e.target.closest('[data-vote]');
   if (voteBtn) {
     const round = Number(state.stage[1]);
-    if (canVote(state, state.participants[myId()], round)) act(async () => { await api.vote(myId(), round, voteBtn.dataset.vote === '1'); editing = null; });
+    if (canVote(state, state.participants[myId()], round)) act(async () => { await api.vote(myId(), round, voteBtn.dataset.vote); editing = null; });
   }
 });
 

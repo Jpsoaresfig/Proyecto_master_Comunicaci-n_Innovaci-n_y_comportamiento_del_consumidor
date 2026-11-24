@@ -12,13 +12,13 @@ Duración aproximada: 5–10 minutos.
 
 | Etapa | Pantalla del presentador | Móvil de los participantes |
 |---|---|---|
-| 1. Entrada | QR, código de acceso, participantes y tamaño de cada grupo | Escriben un apodo y reciben al azar (mitad y mitad) Nothing Phone o Fairphone, ambos a €499 (precio hipotético) |
-| 2. Ronda 1 — Innovación (p) | Progreso de respuestas | «En tu próxima compra de móvil, ¿lo comprarías siendo de los primeros, sin saber si otros lo comprarán?» |
+| 1. Entrada | QR, código de acceso, participantes y los dos móviles: Nothing Phone y Fairphone, ambos a €499 (precio hipotético) | Escriben un apodo y esperan |
+| 2. Ronda 1 — Innovación (p) | Progreso de respuestas | Eligen Nothing Phone, Fairphone o «Ninguno por ahora», sin saber qué harán los demás |
 | Resultados 1 | Adopción por producto | — |
-| 3. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron y deciden de nuevo |
-| Resultados 2 | Nuevas adopciones y adopción acumulada. **Aquí el presentador vende el Nothing Phone (60–90 s); el Fairphone queda como comparación** | — |
+| 3. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron; quienes no han comprado eligen de nuevo |
+| Resultados 2 | Nuevas adopciones y adopción acumulada. **Aquí el presentador vende el Nothing Phone (60–90 s)** | — |
 | 4. Ronda 3 — Influencia social + marketing | Progreso de respuestas | Última oportunidad de compra |
-| Final | Crecimiento en la ronda 3 por producto, adopción y %, evolución por ronda, adopción acumulada | Resumen personal |
+| Final | Compras tras la presentación (R3), móvil más comprado, adopción y %, evolución por ronda, adopción acumulada | Resumen personal |
 | Modelo de Bass | Fórmula `f(t) = [p + qF(t)][1 − F(t)]`, p, q y su lectura, saturación y curva teórica | — |
 | Marketing | Fases de la curva S y estrategia de cada una, TikTok, Social Commerce e idea central | — |
 
@@ -64,7 +64,7 @@ por eso el panel se actualiza en cuanto alguien vota.
 
 ```
 sessions/{sid}                      { owner, stage, createdAt }       ← sesión creada por el presentador
-sessions/{sid}/participants/{uid}   { name, product, v1, v2, v3, t }  ← un documento por móvil (votos de las 3 rondas)
+sessions/{sid}/participants/{uid}   { name, v1, v2, v3, t }  ← un documento por móvil (votos de las 3 rondas)
 ```
 
 **Seguridad** (`firestore.rules`)

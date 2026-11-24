@@ -16,23 +16,17 @@ export const PRODUCTS = [
 export const productById = (id) => PRODUCTS.find((p) => p.id === id);
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const NONE = 'none'; // «Ninguno por ahora»
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 export const cleanName = (s) => String(s || '').replace(/[<>&"'`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 18);
 
-// Primera ronda en la que el participante dijo "sí" (0,1,2) o -1.
-export const adoptedRound = (p) => p.votes.findIndex((v) => v === true);
+// Primera ronda en la que el participante compró (0,1,2) o -1, y qué producto.
+export const adoptedRound = (p) => p.votes.findIndex((v) => !!productById(v));
+export const adoptedProduct = (p) => productById(p.votes[adoptedRound(p)]);
 
 // ---------- Reglas del juego (compartidas por ambos modos) ----------
-// Reparto mitad y mitad: al grupo menor; con grupos parejos, al azar
-// (así, si muchos entran a la vez, no van todos al mismo producto).
-export function assignProduct(state) {
-  const n = PRODUCTS.map((x) => Object.values(state.participants).filter((p) => p.product === x.id).length);
-  const min = Math.min(...n), max = Math.max(...n);
-  const options = max - min >= 2 ? PRODUCTS.filter((_, i) => n[i] === min) : PRODUCTS;
-  return options[Math.floor(Math.random() * options.length)].id;
-}
 export function canVote(state, p, round) {
-  if (!p || !p.product || state.stage !== 'r' + round) return false;
+  if (!p || state.stage !== 'r' + round) return false;
   const a = adoptedRound(p);
   // Mientras la ronda está abierta se puede responder y cambiar la respuesta.
   return !(a !== -1 && a < round - 1);
@@ -42,11 +36,11 @@ function normalize(raw) {
   raw = raw || {};
   const participants = {};
   for (const [id, p] of Object.entries(raw.participants || {})) {
-    if (!p || !p.name || !productById(p.product)) continue;
+    if (!p || !p.name) continue;
     const votes = Array.isArray(p.votes) ? p.votes.slice(0, 3) : [p.v1, p.v2, p.v3];
     participants[id] = {
-      name: p.name, product: p.product, t: p.t || 0,
-      votes: [0, 1, 2].map((k) => (typeof votes[k] === 'boolean' ? votes[k] : null)),
+      name: p.name, t: p.t || 0,
+      votes: [0, 1, 2].map((k) => (votes[k] === NONE || productById(votes[k]) ? votes[k] : null)),
     };
   }
   return {
@@ -93,14 +87,14 @@ function connectLocal(onState, key) {
   return {
     mode: 'local',
     join: (id, name) => post('/api/join', { id, name }),
-    vote: (id, round, buy) => post('/api/vote', { id, round, buy }),
+    vote: (id, round, choice) => post('/api/vote', { id, round, choice }),
     admin: (action) => post('/api/admin', { key, action }),
   };
 }
 
 // Cloud Firestore:
 //   sessions/{sid}                     { owner, stage, createdAt }      <- solo el presentador (owner) la modifica
-//   sessions/{sid}/participants/{uid}  { name, product, v1, v2, v3, t } <- cada móvil solo escribe el suyo
+//   sessions/{sid}/participants/{uid}  { name, v1, v2, v3, t }          <- cada móvil solo escribe el suyo
 // El acceso anónimo de Firebase es invisible para el usuario (sin registro ni contraseña):
 // solo da a cada dispositivo un uid que las reglas de seguridad verifican.
 async function connectFirestore(cfg, onState, role) {
@@ -157,11 +151,11 @@ async function connectFirestore(cfg, onState, role) {
       if (!name) return Promise.reject(new Error('Apodo inválido'));
       return guard(current.participants[uid]
         ? updateDoc(myRef, { name })
-        : setDoc(myRef, { name, product: assignProduct(current), v1: null, v2: null, v3: null, t: Date.now() }));
+        : setDoc(myRef, { name, v1: null, v2: null, v3: null, t: Date.now() }));
     },
-    vote(_id, round, buy) {
+    vote(_id, round, choice) {
       if (!canVote(current, current.participants[uid], round)) return Promise.reject(new Error('Esta ronda no está abierta'));
-      return guard(updateDoc(myRef, { ['v' + round]: !!buy }));
+      return guard(updateDoc(myRef, { ['v' + round]: choice }));
     },
     async admin(action) {
       const i = STAGES.indexOf(current.stage);
@@ -179,33 +173,34 @@ async function connectFirestore(cfg, onState, role) {
 }
 
 // ---------- Estadísticas ----------
-// Para cada producto: cuántos lo recibieron (su "mercado") y cuántos lo compraron en cada ronda.
+// Toda la clase es un único mercado (N). Para cada producto: cuántos lo compraron en cada ronda.
 // upTo = número de rondas a contar (1..3).
 export function stats(state, upTo = 3) {
   const list = Object.values(state.participants);
-  const byProduct = PRODUCTS.map((prod) => {
-    const market = list.filter((p) => p.product === prod.id);
-    const perRound = [0, 1, 2].map((k) => (k < upTo ? market.filter((p) => adoptedRound(p) === k).length : 0));
-    const adopters = perRound.reduce((a, b) => a + b, 0);
+  const N = list.length;
+  const series = (perRound) => {
     let acc = 0;
     const cumulative = [0, ...perRound.map((n) => (acc += n))];
-    return { ...prod, chose: market.length, perRound, adopters, cumulative, share: pct(adopters, market.length) };
-  });
-  const N = byProduct.reduce((a, p) => a + p.chose, 0);
-  const perRound = [0, 1, 2].map((k) => byProduct.reduce((a, p) => a + p.perRound[k], 0));
-  const adopters = perRound.reduce((a, b) => a + b, 0);
+    return { perRound, adopters: acc, cumulative, share: pct(acc, N) };
+  };
+  const byProduct = PRODUCTS.map((prod) => ({
+    ...prod,
+    ...series([0, 1, 2].map((k) => (k < upTo ? list.filter((p) => adoptedRound(p) === k && p.votes[k] === prod.id).length : 0))),
+  }));
+  const total = series([0, 1, 2].map((k) => byProduct.reduce((a, p) => a + p.perRound[k], 0)));
+  const { perRound, adopters } = total;
   // Base de cálculo de p y q: solo quienes respondieron la ronda 1. Quien llegó tarde o no respondió
   // no tuvo ocasión de actuar como innovador: no debe bajar p ni contar como imitador.
   const answered1 = list.filter((p) => p.votes[0] !== null);
-  const notYet = upTo > 1 ? answered1.filter((p) => !p.votes[0] && p.votes[1] !== null) : [];
+  const notYet = upTo > 1 ? answered1.filter((p) => p.votes[0] === NONE && p.votes[1] !== null) : [];
   const panel = {
     n1: answered1.length,                             // respondieron la ronda 1
-    buy1: answered1.filter((p) => p.votes[0]).length, // …y compraron
+    buy1: answered1.filter((p) => p.votes[0] !== NONE).length, // …y compraron
     n2: notYet.length,                                // no compraron en R1 y respondieron la ronda 2
-    buy2: notYet.filter((p) => p.votes[1]).length,
+    buy2: notYet.filter((p) => p.votes[1] !== NONE).length,
     out: list.length - answered1.length,              // fuera del cálculo
   };
-  return { byProduct, N, perRound, adopters, total: list.length, panel };
+  return { byProduct, N, perRound, adopters, total, panel };
 }
 
 // Estimación ILUSTRATIVA de p y q a partir de las rondas (no es una estimación estadística).

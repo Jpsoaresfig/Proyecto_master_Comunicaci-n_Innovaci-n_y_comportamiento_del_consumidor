@@ -13,19 +13,20 @@ const DATA_FILE = path.join(__dirname, 'data', 'state.json');
 
 const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass', 'marketing'];
 const PRODUCTS = ['nothing', 'fairphone'];
+const CHOICES = [...PRODUCTS, 'none'];
 
 // ---------- Estado ----------
 let state = {
   key: crypto.randomBytes(4).toString('hex'), // clave del presentador
   stage: 'lobby',
-  participants: {}, // id -> { name, product, votes: [null,null,null], t }
+  participants: {}, // id -> { name, votes: [null,null,null], t }; voto = 'nothing' | 'fairphone' | 'none'
 };
 try {
   const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   if (saved && saved.key && STAGES.includes(saved.stage)) {
     state = saved;
-    // Descarta participantes de versiones anteriores con otros productos.
-    for (const [id, p] of Object.entries(state.participants)) if (!PRODUCTS.includes(p.product)) delete state.participants[id];
+    // Descarta participantes de versiones anteriores (con producto asignado).
+    for (const [id, p] of Object.entries(state.participants)) if (p.product !== undefined) delete state.participants[id];
   }
 } catch (_) {}
 
@@ -108,15 +109,7 @@ function serveStatic(req, res, urlPath) {
 }
 
 const cleanName = (s) => String(s || '').replace(/[<>&"'`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 18);
-const adoptedRound = (p) => p.votes.findIndex((v) => v === true); // -1 si no adoptó
-
-// Reparto mitad y mitad: se asigna el producto con menos participantes (al azar si hay empate).
-function assignProduct() {
-  const count = (x) => Object.values(state.participants).filter((p) => p.product === x).length;
-  const min = Math.min(...PRODUCTS.map(count));
-  const options = PRODUCTS.filter((x) => count(x) === min);
-  return options[crypto.randomInt(options.length)];
-}
+const adoptedRound = (p) => p.votes.findIndex((v) => PRODUCTS.includes(v)); // -1 si no adoptó
 
 // ---------- API ----------
 async function handleApi(req, res, url) {
@@ -143,7 +136,7 @@ async function handleApi(req, res, url) {
     if (!id || !name) return sendJson(res, 400, { error: 'Apodo inválido' });
     const p = state.participants[id];
     if (p) p.name = name;
-    else state.participants[id] = { name, product: assignProduct(), votes: [null, null, null], t: Date.now() };
+    else state.participants[id] = { name, votes: [null, null, null], t: Date.now() };
     changed();
     return sendJson(res, 200, { ok: true });
   }
@@ -151,11 +144,12 @@ async function handleApi(req, res, url) {
   if (route === '/api/vote') {
     const p = state.participants[id];
     const round = Number(body.round); // 1, 2 o 3
-    if (!p || !p.product) return sendJson(res, 404, { error: 'Participante no encontrado' });
+    if (!p) return sendJson(res, 404, { error: 'Participante no encontrado' });
     if (state.stage !== 'r' + round) return sendJson(res, 409, { error: 'Esta ronda no está abierta' });
     const a = adoptedRound(p);
     if (a !== -1 && a < round - 1) return sendJson(res, 409, { error: 'Ya compraste' });
-    p.votes[round - 1] = !!body.buy;
+    if (!CHOICES.includes(body.choice)) return sendJson(res, 400, { error: 'Opción no válida' });
+    p.votes[round - 1] = body.choice;
     changed();
     return sendJson(res, 200, { ok: true });
   }

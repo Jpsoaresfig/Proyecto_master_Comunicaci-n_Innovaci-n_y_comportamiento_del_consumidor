@@ -16,6 +16,9 @@ service cloud.firestore {
       function stages() {
         return ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass', 'marketing'];
       }
+      function products() {
+        return ['nothing', 'fairphone'];
+      }
       function isOwner() {
         return request.auth != null && resource.data.owner == request.auth.uid;
       }
@@ -49,23 +52,21 @@ service cloud.firestore {
           return n is string && n.size() >= 1 && n.size() <= 18;
         }
         // Votar en la ronda k (o cambiar el voto): solo con la ronda abierta,
-        // con producto asignado y sin haber comprado en una ronda anterior.
+        // y sin haber comprado en una ronda anterior.
         function canVote(k) {
           return changed().hasOnly(['v' + string(k)])
-            && request.resource.data['v' + string(k)] is bool
+            && request.resource.data['v' + string(k)] in ['nothing', 'fairphone', 'none']
             && session().stage == 'r' + string(k)
-            && resource.data.product != null
-            && (k < 2 || resource.data.v1 != true)
-            && (k < 3 || resource.data.v2 != true);
+            && (k < 2 || !(resource.data.v1 in products()))
+            && (k < 3 || !(resource.data.v2 in products()));
         }
 
         allow read: if request.auth != null;
 
         allow create: if isMe()
           && session().stage in stages()
-          && request.resource.data.keys().hasOnly(['name', 'product', 'v1', 'v2', 'v3', 't'])
+          && request.resource.data.keys().hasOnly(['name', 'v1', 'v2', 'v3', 't'])
           && validName(request.resource.data.name)
-          && request.resource.data.product in ['nothing', 'fairphone']
           && request.resource.data.v1 == null
           && request.resource.data.v2 == null
           && request.resource.data.v3 == null
