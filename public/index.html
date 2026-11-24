@@ -14,7 +14,7 @@
 <div class="phone" id="app"><div class="center"><p class="muted"><span class="wait-dot"></span>Conectando…</p></div></div>
 
 <script type="module">
-import { connect, PRODUCTS, productById, adoptedRound, canChoose, canVote, stats, esc, pct, store } from './common.js';
+import { connect, productById, adoptedRound, canVote, stats, esc, pct, store } from './common.js';
 
 const app = document.getElementById('app');
 let id = store('bass_id');
@@ -25,8 +25,7 @@ let editing = null; // ronda cuya respuesta se está cambiando
 
 const header = (p) => `<header><div class="brand">BASS <b>CHALLENGE</b></div>${p ? `<div class="who">${esc(p.name)}</div>` : ''}</header>`;
 const pic = (prod, cls = 'pic') => `<div class="${cls}" style="background:${prod.color}22;color:${prod.color}">${prod.icon}</div>`;
-const miniProd = (prod) => `<div class="card mini-prod">${pic(prod)}<div><div style="font-weight:700">${prod.name}</div><div class="muted" style="font-size:14px">${prod.desc} · ${prod.price}</div></div></div>`;
-const waitScreen = (title, text) => `<div class="center fade-in"><span class="tag"><i></i>En espera</span><h1>${title}</h1><p>${text}</p><p class="muted"><span class="wait-dot"></span>La pantalla avanzará automáticamente.</p></div>`;
+const miniProd = (prod) => `<div class="card mini-prod">${pic(prod)}<div><div style="font-weight:700">${prod.name}</div><div class="muted" style="font-size:14px">${prod.desc} · ${prod.price} (precio hipotético)</div></div></div>`;
 
 function socialBox(s, prod) {
   const mine = s.byProduct.find((x) => x.id === prod.id);
@@ -42,14 +41,14 @@ function socialBox(s, prod) {
 function question(round, p, prod) {
   const s = stats(state, round - 1);
   const texts = {
-    1: { tag: 'Ronda 1', q: '¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?', yes: 'Sí, lo compraría', no: 'No, esperaría' },
-    2: { tag: 'Ronda 2', q: 'Ahora que sabes cuántas personas ya compraron este producto, ¿ha cambiado tu decisión?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
-    3: { tag: 'Última ronda', q: 'Con los resultados actualizados, ¿comprarías el producto ahora?', yes: 'Sí, lo compraría', no: 'No, no lo compraría' },
+    1: { tag: 'Ronda 1', q: 'Este móvil acaba de salir. En tu próxima compra de móvil, ¿lo comprarías siendo de los primeros, sin saber si otros lo comprarán?', yes: 'Sí, lo compraría', no: 'No, por ahora no lo compraría' },
+    2: { tag: 'Ronda 2', q: 'Ahora que sabes cuántas personas ya lo compraron, ¿lo comprarías en tu próxima compra de móvil?', yes: 'Sí, ahora lo compraría', no: 'No, seguiría esperando' },
+    3: { tag: 'Última ronda', q: 'Con todo lo que has visto y los resultados actualizados, ¿comprarías este móvil?', yes: 'Sí, lo compraría', no: 'No, no lo compraría' },
   }[round];
   const a = adoptedRound(p);
   if (a !== -1 && a < round - 1) {
     return `<div class="fade-in">${miniProd(prod)}<span class="tag"><i></i>${texts.tag}</span>
-      <h1>Ya compraste este producto en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
+      <h1>Ya compraste este móvil en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
       ${socialBox(s, prod)}</div>`;
   }
   if (p.votes[round - 1] !== null && editing !== round) {
@@ -84,14 +83,11 @@ function view() {
   }
   const st = state.stage;
   const prod = productById(p.product);
-  if (!prod || st === 'lobby') {
-    if (!canChoose(state, p)) return header(p) + waitScreen('Espera', 'Esperando la siguiente etapa.');
-    return header(p) + `<div class="fade-in"><span class="tag"><i></i>Elige un producto</span>
-      <h1>¿Qué producto te interesa más?</h1><p>Lo seguirás durante toda la simulación. Puedes cambiarlo hasta que empiece la ronda 1.</p>
-      <div class="stack">${PRODUCTS.map((x) => `<button class="prod-opt ${p.product === x.id ? 'sel' : ''}" style="--c:${x.color}" data-prod="${x.id}">
-        ${pic(x)}<div><div class="t">${x.name}</div><div class="d">${x.desc}</div></div><div class="pr">${x.price}</div></button>`).join('')}</div>
-      <div class="err">${esc(error)}</div>
-      ${p.product ? '<p class="muted" style="margin-top:14px"><span class="wait-dot"></span>Elección guardada. La dinámica comenzará en breve.</p>' : ''}</div>`;
+  if (st === 'lobby') {
+    return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Tu producto</span>
+      <h1>Te ha tocado ${prod.name}</h1><p>Se asigna al azar, mitad y mitad. Imagina que acaba de salir al mercado: lo seguirás durante toda la simulación.</p>
+      ${miniProd(prod)}
+      <p class="muted"><span class="wait-dot"></span>La dinámica comenzará en breve.</p></div>`;
   }
 
   if (st === 'r1' || st === 'r2' || st === 'r3') return header(p) + question(Number(st[1]), p, prod);
@@ -101,13 +97,13 @@ function view() {
       <p>El presentador está mostrando cuántas personas compraron cada producto.</p>${socialBox(stats(state, st === 'res1' ? 1 : 2), prod)}</div>`;
   }
 
-  // final / bass
+  // final / bass / marketing
   const a = adoptedRound(p);
   const mine = stats(state).byProduct.find((x) => x.id === prod.id);
   return header(p) + `<div class="center fade-in"><span class="tag"><i></i>Fin de la simulación</span>
-    <h1>${a === -1 ? 'No compraste el producto' : `Compraste en la ronda ${a + 1}`}</h1>
-    <p>${a === 0 ? 'Actuaste como <b style="color:var(--text)">innovador</b>: compraste sin influencia social (p).'
-      : a > 0 ? 'Actuaste como <b style="color:var(--text)">imitador</b>: te influyó la adopción de otros (q).'
+    <h1>${a === -1 ? 'No compraste el móvil' : `Compraste en la ronda ${a + 1}`}</h1>
+    <p>${a === 0 ? 'Compraste por iniciativa propia, antes de ver las compras de otros: perfil <b style="color:var(--text)">innovador</b> (p).'
+      : a > 0 ? 'Compraste después de ver las compras de otros: si eso influyó en ti, tu perfil es <b style="color:var(--text)">imitador</b> (q).'
       : 'Formas parte del mercado que aún no adoptó el producto.'}</p>
     ${miniProd(prod)}
     <p>Adopción final de ${prod.name}: <b style="color:var(--text)">${mine.adopters} de ${mine.chose} (${mine.share}%)</b>.</p>
@@ -143,8 +139,6 @@ app.addEventListener('submit', (e) => {
   act(() => api.join(myId(), name));
 });
 app.addEventListener('click', (e) => {
-  const prodBtn = e.target.closest('[data-prod]');
-  if (prodBtn) return act(() => api.choose(myId(), prodBtn.dataset.prod));
   const editBtn = e.target.closest('[data-edit]');
   if (editBtn) { editing = Number(editBtn.dataset.edit); return render(); }
   const voteBtn = e.target.closest('[data-vote]');

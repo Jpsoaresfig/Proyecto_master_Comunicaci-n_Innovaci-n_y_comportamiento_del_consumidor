@@ -1,18 +1,17 @@
 // BASS CHALLENGE — lógica compartida (productos, sincronización, estadísticas, utilidades)
 
-export const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
-export const STAGE_LABELS = ['Entrada', 'Ronda 1', 'Resultados', 'Ronda 2', 'Resultados', 'Ronda 3', 'Final', 'Modelo de Bass'];
+export const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass', 'marketing'];
+export const STAGE_LABELS = ['Entrada', 'Ronda 1', 'Resultados', 'Ronda 2', 'Resultados', 'Ronda 3', 'Final', 'Modelo de Bass', 'Marketing'];
 
 const ICONS = {
-  watch: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6l.6-3h4.8l.6 3M9 18l.6 3h4.8l.6-3M12 9.5V12l1.6 1.2"/></svg>',
-  pods: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h.5v6.5a1.5 1.5 0 0 0 3 0V7a3 3 0 0 0-3-3z"/><path d="M16.5 4a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3H16v6.5a1.5 1.5 0 0 1-3 0V7a3 3 0 0 1 3-3z"/></svg>',
-  holo: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l6 3.5v7L12 17l-6-3.5v-7z"/><path d="M12 10l6-3.5M12 10L6 6.5M12 10v7"/><path d="M8 21h8M12 17v4"/></svg>',
+  nothing: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M9 6.5a2 2 0 0 1 2-1M12 10a3.5 3.5 0 1 1-3.2 4.9M15.2 18.3v-1.6"/></svg>',
+  fairphone: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M9.5 14.5c0-3.5 2-5.5 5.5-5.5 0 3.5-2 5.5-5.5 5.5zM9 16.5l3.2-4.2"/></svg>',
 };
 
+// Dos móviles con el mismo precio hipotético. "pitched": el que el presentador vende antes de la ronda 3.
 export const PRODUCTS = [
-  { id: 'watch', name: 'SmartWatch X', desc: 'Reloj inteligente', price: '€199', color: '#3987e5' },
-  { id: 'pods', name: 'SoundPods', desc: 'Auriculares con traducción simultánea', price: '€149', color: '#d95926' },
-  { id: 'holo', name: 'HoloMini', desc: 'Proyector holográfico portátil', price: '€299', color: '#199e70' },
+  { id: 'nothing', name: 'Nothing Phone', desc: 'Diseño transparente y luces en la parte trasera', price: '€499', color: '#3987e5', pitched: true },
+  { id: 'fairphone', name: 'Fairphone', desc: 'Sostenible y fácil de reparar', price: '€499', color: '#d95926' },
 ].map((p) => ({ ...p, icon: ICONS[p.id] }));
 export const productById = (id) => PRODUCTS.find((p) => p.id === id);
 
@@ -24,9 +23,13 @@ export const cleanName = (s) => String(s || '').replace(/[<>&"'`]/g, '').replace
 export const adoptedRound = (p) => p.votes.findIndex((v) => v === true);
 
 // ---------- Reglas del juego (compartidas por ambos modos) ----------
-export function canChoose(state, p) {
-  // Se elige en la entrada (y se puede cambiar); después solo quien aún no eligió (llegó tarde).
-  return state.stage === 'lobby' || !p.product;
+// Reparto mitad y mitad: al grupo menor; con grupos parejos, al azar
+// (así, si muchos entran a la vez, no van todos al mismo producto).
+export function assignProduct(state) {
+  const n = PRODUCTS.map((x) => Object.values(state.participants).filter((p) => p.product === x.id).length);
+  const min = Math.min(...n), max = Math.max(...n);
+  const options = max - min >= 2 ? PRODUCTS.filter((_, i) => n[i] === min) : PRODUCTS;
+  return options[Math.floor(Math.random() * options.length)].id;
 }
 export function canVote(state, p, round) {
   if (!p || !p.product || state.stage !== 'r' + round) return false;
@@ -39,10 +42,10 @@ function normalize(raw) {
   raw = raw || {};
   const participants = {};
   for (const [id, p] of Object.entries(raw.participants || {})) {
-    if (!p || !p.name) continue;
+    if (!p || !p.name || !productById(p.product)) continue;
     const votes = Array.isArray(p.votes) ? p.votes.slice(0, 3) : [p.v1, p.v2, p.v3];
     participants[id] = {
-      name: p.name, product: p.product || null, t: p.t || 0,
+      name: p.name, product: p.product, t: p.t || 0,
       votes: [0, 1, 2].map((k) => (typeof votes[k] === 'boolean' ? votes[k] : null)),
     };
   }
@@ -90,7 +93,6 @@ function connectLocal(onState, key) {
   return {
     mode: 'local',
     join: (id, name) => post('/api/join', { id, name }),
-    choose: (id, product) => post('/api/choose', { id, product }),
     vote: (id, round, buy) => post('/api/vote', { id, round, buy }),
     admin: (action) => post('/api/admin', { key, action }),
   };
@@ -129,15 +131,15 @@ async function connectFirestore(cfg, onState, role) {
   if (!sid || !/^[a-z0-9]{4,12}$/.test(sid)) {
     onState(normalize({ noSession: true }));
     const fail = async () => { throw new Error('Escanea el código QR de la pantalla'); };
-    return { mode: 'firebase', join: fail, choose: fail, vote: fail, admin: fail };
+    return { mode: 'firebase', join: fail, vote: fail, admin: fail };
   }
 
   const sessionRef = doc(db, 'sessions', sid);
   const partsRef = collection(db, 'sessions', sid, 'participants');
   const myRef = doc(partsRef, uid);
-  let session, parts = {}, current = normalize();
+  let session, parts = null, current = normalize();
   const emit = () => {
-    if (session === undefined) return; // aún cargando
+    if (session === undefined || !parts) return; // aún cargando
     current = normalize({ stage: session && session.stage, participants: parts, me: uid, sessionId: sid, noSession: !session });
     onState(current);
   };
@@ -155,12 +157,7 @@ async function connectFirestore(cfg, onState, role) {
       if (!name) return Promise.reject(new Error('Apodo inválido'));
       return guard(current.participants[uid]
         ? updateDoc(myRef, { name })
-        : setDoc(myRef, { name, product: null, v1: null, v2: null, v3: null, t: Date.now() }));
-    },
-    choose(_id, product) {
-      const p = current.participants[uid];
-      if (!p || !productById(product) || !canChoose(current, p)) return Promise.reject(new Error('Ya no se puede cambiar'));
-      return guard(updateDoc(myRef, { product }));
+        : setDoc(myRef, { name, product: assignProduct(current), v1: null, v2: null, v3: null, t: Date.now() }));
     },
     vote(_id, round, buy) {
       if (!canVote(current, current.participants[uid], round)) return Promise.reject(new Error('Esta ronda no está abierta'));
@@ -182,7 +179,7 @@ async function connectFirestore(cfg, onState, role) {
 }
 
 // ---------- Estadísticas ----------
-// Para cada producto: cuántos lo eligieron (su "mercado") y cuántos lo compraron en cada ronda.
+// Para cada producto: cuántos lo recibieron (su "mercado") y cuántos lo compraron en cada ronda.
 // upTo = número de rondas a contar (1..3).
 export function stats(state, upTo = 3) {
   const list = Object.values(state.participants);
@@ -197,18 +194,43 @@ export function stats(state, upTo = 3) {
   const N = byProduct.reduce((a, p) => a + p.chose, 0);
   const perRound = [0, 1, 2].map((k) => byProduct.reduce((a, p) => a + p.perRound[k], 0));
   const adopters = perRound.reduce((a, b) => a + b, 0);
-  return { byProduct, N, perRound, adopters, total: list.length };
+  // Base de cálculo de p y q: solo quienes respondieron la ronda 1. Quien llegó tarde o no respondió
+  // no tuvo ocasión de actuar como innovador: no debe bajar p ni contar como imitador.
+  const answered1 = list.filter((p) => p.votes[0] !== null);
+  const notYet = upTo > 1 ? answered1.filter((p) => !p.votes[0] && p.votes[1] !== null) : [];
+  const panel = {
+    n1: answered1.length,                             // respondieron la ronda 1
+    buy1: answered1.filter((p) => p.votes[0]).length, // …y compraron
+    n2: notYet.length,                                // no compraron en R1 y respondieron la ronda 2
+    buy2: notYet.filter((p) => p.votes[1]).length,
+    out: list.length - answered1.length,              // fuera del cálculo
+  };
+  return { byProduct, N, perRound, adopters, total: list.length, panel };
 }
 
 // Estimación ILUSTRATIVA de p y q a partir de las rondas (no es una estimación estadística).
 // Ronda 1: nadie conoce adoptantes → tasa = p.  Ronda 2: tasa entre no adoptantes = p + q·F1.
-export function illustrativePQ(s) {
-  if (!s.N) return { p: null, q: null };
-  const p = s.perRound[0] / s.N;
-  const remaining = s.N - s.perRound[0];
-  if (!p || !remaining) return { p, q: null };
-  const hazard2 = s.perRound[1] / remaining;
-  return { p, q: Math.max(0, (hazard2 - p) / p) };
+// Como F1 = p, q = (tasa R2 − p) / p. La ronda 3 (posterior a la presentación comercial del presentador) no interviene.
+export function illustrativePQ({ panel }) {
+  const { n1, buy1, n2, buy2 } = panel;
+  const p = n1 ? buy1 / n1 : null;
+  const rate2 = n2 ? buy2 / n2 : null;
+  const q = p && rate2 !== null ? Math.max(0, (rate2 - p) / p) : null;
+  // Compras de la ronda 2 que cabría esperar solo con la tasa de innovación p.
+  const expectedByP = p !== null ? p * n2 : null;
+  return { p, q, rate2, expectedByP };
+}
+
+// Lectura del resultado para la pantalla del presentador (umbrales orientativos).
+export function interpretPQ({ p, q, rate2 }) {
+  if (p === null) return 'Nadie respondió la ronda 1: no se pueden calcular p ni q.';
+  if (p === 0) return 'Nadie compró en la ronda 1 (p = 0): no había a quién imitar y q no se puede calcular.';
+  if (p === 1) return 'Todos compraron en la ronda 1: no quedó mercado para observar la imitación (q).';
+  if (rate2 === null) return 'Faltan respuestas de la ronda 2: q no se puede calcular.';
+  if (q === 0) return 'La tasa de compra de la ronda 2 no superó a la de la ronda 1: no se observó imitación.';
+  if (p < 0.1 && rate2 < 0.1) return 'Tasas bajas en las dos rondas: la adopción fue lenta en esta clase.';
+  if (q > p) return 'q > p: pesó más la influencia de los demás que la iniciativa propia.';
+  return 'p ≥ q: pesó más la iniciativa propia que la influencia de los demás.';
 }
 
 // Curva teórica de Bass (tiempo discreto): f(t) = [p + q·F(t)]·[1 − F(t)]

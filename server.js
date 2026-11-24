@@ -11,8 +11,8 @@ const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_FILE = path.join(__dirname, 'data', 'state.json');
 
-const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass'];
-const PRODUCTS = ['watch', 'pods', 'holo'];
+const STAGES = ['lobby', 'r1', 'res1', 'r2', 'res2', 'r3', 'final', 'bass', 'marketing'];
+const PRODUCTS = ['nothing', 'fairphone'];
 
 // ---------- Estado ----------
 let state = {
@@ -22,7 +22,11 @@ let state = {
 };
 try {
   const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  if (saved && saved.key && STAGES.includes(saved.stage)) state = saved;
+  if (saved && saved.key && STAGES.includes(saved.stage)) {
+    state = saved;
+    // Descarta participantes de versiones anteriores con otros productos.
+    for (const [id, p] of Object.entries(state.participants)) if (!PRODUCTS.includes(p.product)) delete state.participants[id];
+  }
 } catch (_) {}
 
 let version = 1;
@@ -106,6 +110,14 @@ function serveStatic(req, res, urlPath) {
 const cleanName = (s) => String(s || '').replace(/[<>&"'`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 18);
 const adoptedRound = (p) => p.votes.findIndex((v) => v === true); // -1 si no adoptó
 
+// Reparto mitad y mitad: se asigna el producto con menos participantes (al azar si hay empate).
+function assignProduct() {
+  const count = (x) => Object.values(state.participants).filter((p) => p.product === x).length;
+  const min = Math.min(...PRODUCTS.map(count));
+  const options = PRODUCTS.filter((x) => count(x) === min);
+  return options[crypto.randomInt(options.length)];
+}
+
 // ---------- API ----------
 async function handleApi(req, res, url) {
   const route = url.pathname;
@@ -131,18 +143,7 @@ async function handleApi(req, res, url) {
     if (!id || !name) return sendJson(res, 400, { error: 'Apodo inválido' });
     const p = state.participants[id];
     if (p) p.name = name;
-    else state.participants[id] = { name, product: null, votes: [null, null, null], t: Date.now() };
-    changed();
-    return sendJson(res, 200, { ok: true });
-  }
-
-  if (route === '/api/choose') {
-    const p = state.participants[id];
-    if (!p) return sendJson(res, 404, { error: 'Participante no encontrado' });
-    if (!PRODUCTS.includes(body.product)) return sendJson(res, 400, { error: 'Producto inválido' });
-    // Se puede cambiar libremente en la entrada; después solo quien aún no eligió (llegó tarde).
-    if (p.product && state.stage !== 'lobby') return sendJson(res, 409, { error: 'Ya no se puede cambiar' });
-    p.product = body.product;
+    else state.participants[id] = { name, product: assignProduct(), votes: [null, null, null], t: Date.now() };
     changed();
     return sendJson(res, 200, { ok: true });
   }

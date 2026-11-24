@@ -12,14 +12,15 @@ Duración aproximada: 5–10 minutos.
 
 | Etapa | Pantalla del presentador | Móvil de los participantes |
 |---|---|---|
-| 1. Entrada | QR, código de acceso, participantes y cuántos eligieron cada producto | Escriben un apodo y eligen SmartWatch X (€199), SoundPods (€149) o HoloMini (€299) |
-| 2. Ronda 1 — Innovación (p) | Progreso de respuestas | «¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?» |
+| 1. Entrada | QR, código de acceso, participantes y tamaño de cada grupo | Escriben un apodo y reciben al azar (mitad y mitad) Nothing Phone o Fairphone, ambos a €499 (precio hipotético) |
+| 2. Ronda 1 — Innovación (p) | Progreso de respuestas | «En tu próxima compra de móvil, ¿lo comprarías siendo de los primeros, sin saber si otros lo comprarán?» |
 | Resultados 1 | Adopción por producto | — |
-| 3. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron y deciden si mantienen o cambian su decisión |
-| Resultados 2 | Nuevas adopciones y adopción acumulada | — |
-| 4. Ronda 3 — Saturación | Progreso de respuestas | Última oportunidad de compra |
-| Final | Producto más elegido, adopción y %, evolución por ronda, curva S | Resumen personal |
-| Modelo de Bass | Fórmula `f(t) = [p + qF(t)][1 − F(t)]`, p, q, saturación y curva teórica | — |
+| 3. Ronda 2 — Imitación (q) | Progreso de respuestas | Ven cuántos ya compraron y deciden de nuevo |
+| Resultados 2 | Nuevas adopciones y adopción acumulada. **Aquí el presentador vende el Nothing Phone (60–90 s); el Fairphone queda como comparación** | — |
+| 4. Ronda 3 — Influencia social + marketing | Progreso de respuestas | Última oportunidad de compra |
+| Final | Crecimiento en la ronda 3 por producto, adopción y %, evolución por ronda, adopción acumulada | Resumen personal |
+| Modelo de Bass | Fórmula `f(t) = [p + qF(t)][1 − F(t)]`, p, q y su lectura, saturación y curva teórica | — |
+| Marketing | Fases de la curva S y estrategia de cada una, TikTok, Social Commerce e idea central | — |
 
 Controles del presentador: botón principal (avanzar / revelar resultados), **Atrás**, **Reiniciar**
 (pide confirmación) y **QR** (muestra el código en grande para quien llegue tarde).
@@ -28,7 +29,8 @@ Quien abra la web sin el QR puede escribir el **código de acceso** que aparece 
 Atajos de teclado: `→` avanzar, `←` atrás, `Q` mostrar QR — funciona con un presentador de diapositivas.
 
 > La votación de la clase es una demostración participativa simplificada, no una estimación
-> estadística rigurosa de los parámetros p y q.
+> estadística rigurosa de los parámetros p y q. Solo entran en el cálculo quienes respondieron la ronda 1
+> (y, para q, también la ronda 2); la ronda 3, posterior a la presentación comercial, no interviene.
 
 ## Estructura
 

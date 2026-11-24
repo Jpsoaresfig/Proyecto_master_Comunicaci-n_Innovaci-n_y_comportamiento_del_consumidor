@@ -16,10 +16,24 @@
   #qrOverlay .qr-url { max-width: none; font-size: 22px; }
   .qr-code { text-align: center; margin-top: 10px; font-size: 18px; color: var(--text-2); }
   .qr-code b { font-family: ui-monospace, Consolas, monospace; font-size: 34px; color: var(--text); letter-spacing: .14em; margin-left: 8px; }
-  .dist { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; max-width: 620px; }
+  .dist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 22px; max-width: 620px; }
   .dist .card { padding: 14px 16px; border-left: 4px solid var(--c); }
   .dist .n { font-size: 30px; font-weight: 700; }
   .dist .t { font-size: 14px; color: var(--text-2); }
+  .mk-chart { margin-top: 14px; padding: 12px 0 0; overflow: hidden; }
+  .mk-chart svg { display: block; width: 100%; height: clamp(90px, 17vh, 240px); }
+  .mk-cols { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border); }
+  .mk-cols > div { padding: clamp(10px, 1.8vh, 18px) 20px; border-left: 1px solid var(--border); }
+  .mk-cols > div:first-child { border-left: 0; }
+  .mk-cols h3 { font-size: 21px; }
+  .mk-cols .d { color: var(--muted); font-size: 15px; margin: 4px 0 8px; }
+  .mk-cols .s { color: var(--text); font-size: 17px; line-height: 1.4; font-weight: 500; }
+  .mk-bottom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+  .mk-bottom .concept { margin-top: 0; padding: clamp(12px, 1.8vh, 18px) 20px; }
+  .mk-bottom .concept p { font-size: 15.5px; line-height: 1.4; }
+  .reading { margin-top: 10px; font-size: 16px; line-height: 1.4; }
+  .reading-key { margin-top: 4px; font-size: 14px; line-height: 1.4; color: var(--muted); }
+  @media (max-width: 1100px) { .mk-cols { grid-template-columns: 1fr 1fr; } .mk-bottom { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -41,7 +55,7 @@
 <div id="qrOverlay"><div><div class="qr-box" id="qrBig"></div><div class="qr-url" id="qrBigUrl"></div><div class="qr-code" id="qrBigCode"></div></div></div>
 
 <script type="module">
-import { connect, STAGES, STAGE_LABELS, PRODUCTS, stats, adoptedRound, illustrativePQ, bassCurve, esc, pct, enableTooltips } from './common.js';
+import { connect, STAGES, STAGE_LABELS, PRODUCTS, stats, adoptedRound, illustrativePQ, interpretPQ, bassCurve, esc, pct, enableTooltips } from './common.js';
 
 const $ = (id) => document.getElementById(id);
 const key = new URLSearchParams(location.search).get('key') || '';
@@ -74,14 +88,14 @@ function roundLegend(upTo) {
 function hbars(s, upTo) {
   return roundLegend(upTo) + s.byProduct.map((p) => `
     <div class="hbar">
-      <div class="name"><span class="sw" style="background:${p.color}"></span><div>${p.name}<small>${p.chose} lo eligieron</small></div></div>
+      <div class="name"><span class="sw" style="background:${p.color}"></span><div>${p.name}<small>${p.chose} personas asignadas</small></div></div>
       <div class="htrack">${p.perRound.slice(0, upTo).map((n, k) => n ? `<div class="hseg" style="width:${(n / p.chose) * 100}%;background:${p.color};opacity:${ROUND_ALPHA[k]};animation-delay:${k * 0.25}s"
         data-tip="<b>${p.name}</b> · ronda ${k + 1}<br>${n} compra${n === 1 ? '' : 's'} (${pct(n, p.chose)}% de su mercado)"></div>` : '').join('')}</div>
       <div class="val"><b class="num">${p.share}%</b><span class="num">${p.adopters} de ${p.chose}</span></div>
     </div>`).join('');
 }
 
-// Curva S de adopción acumulada (% del mercado de cada producto) por ronda.
+// Adopción acumulada (% del mercado de cada producto) por ronda.
 function sCurve(s) {
   const W = 760, H = 330, L = 50, R = 170, T = 14, B = 40;
   const x = (i) => L + (i / 3) * (W - L - R);
@@ -105,7 +119,7 @@ function sCurve(s) {
     });
   });
   const lbl = labels.map(({ sr, y: ly }) => `<text x="${x(3) + 14}" y="${ly + 5}" style="font-size:15px;font-weight:600;fill:var(--text)">${sr.p.name} <tspan style="fill:var(--text-2);font-weight:500">${sr.vals[3]}%</tspan></text>`).join('');
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Curva S de adopción acumulada">${g}${lines}${marks}${lbl}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Adopción acumulada por ronda">${g}${lines}${marks}${lbl}</svg>`;
 }
 
 // Curva teórica de Bass: nuevas adopciones apiladas (innovación vs. imitación) y adopción acumulada F(t).
@@ -153,6 +167,8 @@ function progressCard(round) {
     <div class="muted">${round > 1 ? 'Solo responden quienes aún no han comprado.' : 'Responde en tu móvil.'}</div></div>`;
 }
 
+const PITCHED = PRODUCTS.find((p) => p.pitched);
+
 const VIEWS = {
   lobby() {
     const u = joinUrl();
@@ -165,31 +181,33 @@ const VIEWS = {
         <p class="lead">Simularemos en directo cómo se difunde una innovación en un mercado: quién compra primero, quién imita y cuándo se satura.</p>
         <div class="count-big num">${names.length}</div><div class="muted" style="font-size:18px">participantes conectados</div>
         <div class="dist">${PRODUCTS.map((p) => `<div class="card" style="--c:${p.color}"><div class="n num">${names.filter((x) => x.product === p.id).length}</div><div class="t">${p.name} · ${p.price}</div></div>`).join('')}</div>
+        <p class="note">Cada persona recibe un móvil al azar, mitad y mitad. Mismo precio hipotético para ambos.</p>
         <div class="chips">${names.map((p) => `<span class="chip">${esc(p.name)}</span>`).join('')}</div>
         ${lanOnly ? '<div class="note">Enlace de red local: los móviles deben estar en la misma red Wi-Fi que este ordenador.</div>' : ''}
       </div></div>`;
   },
   r1() {
     return `<div class="round"><div><span class="tag"><i></i>Ronda 1 · Innovación</span>
-      <h1 class="question">¿Comprarías este producto aun siendo de los primeros consumidores, sin saber si otras personas también lo comprarán?</h1>
+      <h1 class="question">Tu móvil acaba de salir al mercado. ¿Lo comprarías siendo de los primeros, sin saber si otros lo comprarán?</h1>
       <div class="card concept" style="--c:var(--innov)"><h3>Coeficiente de innovación (p)</h3>
       <p>Mide la adopción por iniciativa propia: los <b>innovadores</b> compran sin depender de la opinión ni del ejemplo de otros.</p></div></div>
       ${progressCard(1)}</div>`;
   },
   res1() {
     const s = stats(state, 1);
+    const { p } = illustrativePQ(s);
     return `<span class="tag"><i></i>Resultados · Ronda 1</span>
-      <h1 class="hero-title" style="font-size:44px">Los innovadores ya compraron</h1>
+      <h1 class="hero-title" style="font-size:44px">${s.adopters ? 'Los innovadores ya compraron' : 'Nadie quiso ser el primero'}</h1>
       <div class="res"><div>${hbars(s, 1)}</div><div>
-        <div class="card kpi"><div class="lbl">Compraron sin influencia social</div><div class="v num">${pct(s.perRound[0], s.N)}%</div>
-        <p>${s.perRound[0]} de ${s.N} participantes. Esta proporción ilustra el <b>coeficiente de innovación (p)</b>.</p></div>
-        <div class="card kpi"><div class="lbl">Siguiente paso</div><p>Ahora todos verán cuántas personas compraron cada producto. ¿Influirá en su decisión?</p></div>
+        <div class="card kpi"><div class="lbl">Compraron sin influencia social</div><div class="v num">${p === null ? '—' : Math.round(p * 100) + '%'}</div>
+        <p>${s.panel.buy1} de ${s.panel.n1} personas que respondieron. Esta proporción ilustra el <b>coeficiente de innovación (p)</b>.</p></div>
+        <div class="card kpi"><div class="lbl">Siguiente paso</div><p>Ahora todos verán cuántas personas compraron cada móvil. ¿Influirá en su decisión?</p></div>
       </div></div>`;
   },
   r2() {
     const s = stats(state, 1);
     return `<div class="round"><div><span class="tag"><i></i>Ronda 2 · Influencia social</span>
-      <h1 class="question">Ahora que sabes cuántas personas ya compraron este producto, ¿ha cambiado tu decisión?</h1>
+      <h1 class="question">Ahora que sabes cuántas personas ya compraron tu móvil, ¿lo comprarías?</h1>
       <div class="card concept" style="--c:var(--imit)"><h3>Coeficiente de imitación (q)</h3>
       <p>Mide la adopción influida por quienes ya adoptaron: boca a boca, prueba social y presión del entorno. Cuantos más adoptantes hay, más fuerte es el efecto.</p></div>
       <p class="muted" style="margin-top:16px;font-size:16px">Ya compraron: ${s.byProduct.map((p) => `<b style="color:var(--text)">${p.name}</b> ${p.adopters}/${p.chose}`).join(' · ')}</p></div>
@@ -197,48 +215,49 @@ const VIEWS = {
   },
   res2() {
     const s = stats(state, 2);
+    const est = illustrativePQ(s);
     return `<span class="tag"><i></i>Resultados · Ronda 2</span>
-      <h1 class="hero-title" style="font-size:44px">El efecto de la imitación</h1>
+      <h1 class="hero-title" style="font-size:44px">¿Hubo efecto de imitación?</h1>
       <div class="res"><div>${hbars(s, 2)}</div><div>
         <div class="card kpi"><div class="lbl">Nuevas compras en la ronda 2</div><div class="v num">+${s.perRound[1]}</div>
-        <p>Personas que cambiaron de opinión al ver que otros ya habían comprado: efecto del <b>coeficiente de imitación (q)</b>.</p></div>
-        <div class="card kpi"><div class="lbl">Adopción acumulada</div><div class="v num">${pct(s.adopters, s.N)}%</div><p>${s.adopters} de ${s.N} participantes ya adoptaron algún producto.</p></div>
+        <p>${est.p ? `De quienes respondieron las dos rondas, compraron ${s.panel.buy2} de ${s.panel.n2}. Solo con p cabría esperar ≈ ${fmt(est.expectedByP, 1)}. ` : ''}Lo que supera a p ilustra la <b>imitación (q)</b>.</p></div>
+        <div class="card kpi"><div class="lbl">Adopción acumulada</div><div class="v num">${pct(s.adopters, s.N)}%</div><p>${s.adopters} de ${s.N} participantes ya compraron su móvil.</p></div>
+        <div class="card kpi"><div class="lbl">Siguiente paso</div><p>Presentación del <b>${PITCHED.name}</b>. Después, la última ronda.</p></div>
       </div></div>`;
   },
   r3() {
     const s = stats(state, 2);
     return `<div class="round"><div><span class="tag"><i></i>Ronda 3 · Última decisión</span>
-      <h1 class="question">Con los resultados actualizados, ¿comprarías el producto ahora?</h1>
-      <div class="card concept" style="--c:var(--accent)"><h3>Hacia la saturación</h3>
-      <p>Cada vez quedan menos personas por adoptar. Aunque la influencia social es mayor, el número de nuevas compras tiende a disminuir.</p></div>
+      <h1 class="question">Con todo lo que has visto y los resultados actualizados, ¿comprarías tu móvil?</h1>
+      <div class="card concept" style="--c:var(--accent)"><h3>Influencia social + marketing, en un mercado menor</h3>
+      <p>Puede haber más influencia social y, en el ${PITCHED.name}, también marketing. Pero quedan menos personas por adoptar: [1 − F(t)].</p></div>
       <p class="muted" style="margin-top:16px;font-size:16px">Ya compraron: ${s.byProduct.map((p) => `<b style="color:var(--text)">${p.name}</b> ${p.adopters}/${p.chose}`).join(' · ')}</p></div>
       ${progressCard(3)}</div>`;
   },
   final() {
     const s = stats(state, 3);
-    const most = Math.max(...s.byProduct.map((p) => p.chose));
     const winner = (list) => (list.length === 1 ? list[0].name : list.length ? 'Empate' : '—');
-    const topL = s.byProduct.filter((p) => p.chose === most && most > 0);
+    const r3 = s.byProduct.map((p) => ({ ...p, gain: pct(p.cumulative[3], p.chose) - pct(p.cumulative[2], p.chose) }));
     const best = Math.max(...s.byProduct.map((p) => p.share));
     const bestL = s.byProduct.filter((p) => p.share === best && p.chose);
-    const top = winner(topL), topAdopt = winner(bestL);
+    const topAdopt = winner(bestL);
     const tieNote = (list) => (list.length > 1 ? list.map((p) => p.name).join(', ') + ': ' : '');
     return `<span class="tag"><i></i>Resultados finales</span>
       <div class="kpis4">
-        <div class="card kpi"><div class="lbl">Producto más elegido</div><div class="v name">${top}</div><p>${tieNote(topL)}${most} participantes${topL.length > 1 ? ' cada uno' : ''}</p></div>
+        <div class="card kpi"><div class="lbl">Crecimiento en la ronda 3</div><div class="v num">${r3.map((p) => `+${p.gain}`).join(' / ')}</div><p>${r3.map((p) => `${p.name}${p.pitched ? ' (presentado)' : ''}`).join(' / ')}, en p. p.</p></div>
         <div class="card kpi"><div class="lbl">Mayor adopción</div><div class="v name">${topAdopt}</div><p>${tieNote(bestL)}${best}% de su mercado</p></div>
         <div class="card kpi"><div class="lbl">Adopción total</div><div class="v num">${pct(s.adopters, s.N)}%</div><p>${s.adopters} de ${s.N} participantes</p></div>
         <div class="card kpi"><div class="lbl">Compras por ronda</div><div class="v num">${s.perRound.join(' → ')}</div><p>Ronda 1 → 2 → 3</p></div>
       </div>
       <div class="final-grid">
-        <div class="card panel"><h3>Curva S de adopción acumulada</h3><div class="sub">% del mercado de cada producto (quienes lo eligieron) que ya compró</div>${sCurve(s)}</div>
+        <div class="card panel"><h3>Adopción acumulada por ronda</h3><div class="sub">% de cada grupo que ya compró. Con más periodos, el modelo predice una curva en S</div>${sCurve(s)}</div>
         <div class="card panel"><h3>Evolución de las compras</h3><div class="sub">Nuevas compras en cada ronda</div>
-          <table class="data"><thead><tr><th>Producto</th><th>Eligieron</th><th>R1</th><th>R2</th><th>R3</th><th>Total</th><th>%</th></tr></thead><tbody>
+          <table class="data"><thead><tr><th>Producto</th><th>Grupo</th><th>R1</th><th>R2</th><th>R3</th><th>Total</th><th>%</th></tr></thead><tbody>
           ${s.byProduct.map((p) => `<tr><td><span class="sw" style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${p.color};margin-right:8px"></span>${p.name}</td>
             <td>${p.chose}</td>${p.perRound.map((n) => `<td>${n}</td>`).join('')}<td class="strong">${p.adopters}</td><td class="strong">${p.share}%</td></tr>`).join('')}
           <tr><td class="muted">Total</td><td>${s.N}</td>${s.perRound.map((n) => `<td>${n}</td>`).join('')}<td class="strong">${s.adopters}</td><td class="strong">${pct(s.adopters, s.N)}%</td></tr>
           </tbody></table>
-          <p class="muted" style="font-size:14px;margin:16px 0 0;line-height:1.5">R1 = innovadores (p). R2 y R3 = adopción influida por otros (q). Si las nuevas compras caen en la ronda 3 es porque queda menos mercado: <b style="color:var(--text-2)">saturación</b>.</p>
+          <p class="muted" style="font-size:14px;margin:16px 0 0;line-height:1.5">R1 ilustra la innovación (p). En R2 actúan p y q; en R3 se suma el marketing (comparación solo ilustrativa). Si las compras caen, puede ser <b style="color:var(--text-2)">saturación</b> o falta de interés.</p>
         </div></div>`;
   },
   bass() {
@@ -255,9 +274,11 @@ const VIEWS = {
           <div class="card concept" style="--c:var(--accent)"><h3>[1 − F(t)] · Saturación</h3><p>Mercado que queda por adoptar. Cuando casi todos ya compraron, las nuevas adopciones caen.</p></div>
         </div>
         <div class="card panel" style="margin-top:14px"><h3>Nuestra clase (ilustrativo)</h3>
-          <div class="est"><div><b class="num">${est.p == null ? '—' : fmt(est.p)}</b><span>p ≈ compras R1 / participantes</span></div>
+          <div class="est"><div><b class="num">${est.p == null ? '—' : fmt(est.p)}</b><span>p ≈ compras R1 / respuestas R1</span></div>
           <div><b class="num">${est.q == null ? '—' : fmt(est.q)}</b><span>q ≈ (tasa R2 − p) / F(1)</span></div></div>
-          <div class="disclaimer">La votación de la clase es una demostración participativa simplificada (pocas personas, tres rondas, decisiones hipotéticas). No es una estimación estadística rigurosa de p y q, que requiere datos reales de ventas a lo largo del tiempo.</div>
+          <div class="reading">${interpretPQ(est)}</div>
+          <div class="reading-key">p alto: más compras espontáneas · q alto: más influencia de los demás · ambos bajos: adopción lenta${s.panel.out ? `. Sin contar ${s.panel.out} sin respuesta en R1` : ''}</div>
+          <div class="disclaimer">Demostración simplificada (pocas personas, tres rondas, decisiones hipotéticas): no es una estimación estadística rigurosa de p y q.</div>
         </div>
       </div>
       <div class="card panel"><h3>Curva teórica de Bass</h3><div class="sub">Valores de referencia típicos: p = 0,03 · q = 0,38 (Sultan, Farley y Lehmann, 1990)</div>
@@ -266,11 +287,33 @@ const VIEWS = {
         <h3 style="margin-top:14px;font-size:16px">Adopción acumulada F(t): la curva S</h3>${c2}
       </div></div>`;
   },
+  marketing() {
+    // Esquema ilustrativo: curva logística sobre cuatro fases de igual ancho.
+    const F = (x) => 1 / (1 + Math.exp(-2 * (x - 2)));
+    const pts = Array.from({ length: 81 }, (_, i) => `${i * 12.5} ${200 - F(i / 20) * 180}`).join('L');
+    const bands = [1, 3].map((k) => `<rect x="${k * 250}" y="0" width="250" height="210" fill="#fff" opacity=".035"/>`).join('');
+    const phases = [
+      ['Inicio', 'Pocos compradores: domina p', 'Publicidad, lanzamiento y early adopters'],
+      ['Crecimiento', 'Las ventas se aceleran: domina q', 'Influencers, reseñas y recomendaciones'],
+      ['Madurez', 'Gran parte del mercado ya compró', 'Fidelización y diferenciación'],
+      ['Saturación', 'Queda poco mercado: 1 − F(t) pequeño', 'Nuevos mercados e innovación de producto'],
+    ];
+    return `<span class="tag"><i></i>Implicaciones para el marketing digital</span>
+      <h1 class="hero-title" style="font-size:clamp(30px,4.6vh,44px)">Cada momento pide una estrategia</h1>
+      <div class="card mk-chart"><svg viewBox="0 0 1000 210" preserveAspectRatio="none" role="img" aria-label="Curva S dividida en inicio, crecimiento, madurez y saturación">${bands}
+        <path d="M${pts}" fill="none" stroke="var(--accent)" stroke-width="4" vector-effect="non-scaling-stroke"/></svg>
+        <div class="mk-cols">${phases.map(([t, d, e]) => `<div><h3>${t}</h3><div class="d">${d}</div><div class="s">${e}</div></div>`).join('')}</div></div>
+      <div class="mk-bottom">
+        <div class="card concept" style="--c:var(--accent)"><h3>La idea central</h3><p>La decisión individual y la influencia social interactúan para determinar la <b>velocidad de adopción</b> de un producto.</p></div>
+        <div class="card concept" style="--c:var(--imit)"><h3>Ejemplo: TikTok</h3><p>Unos entraron por probar algo nuevo (p); otros, porque ya estaban sus amigos, creadores y marcas (q).</p></div>
+        <div class="card concept" style="--c:var(--innov)"><h3>Social Commerce</h3><p>Reseñas y recomendaciones hacen visible la adopción ajena. Pero Bass no es un modelo de viralización: explica la <b>difusión de nuevos productos</b>.</p></div>
+      </div>`;
+  },
 };
 
 const NEXT_LABEL = {
   lobby: 'Iniciar ronda 1 →', r1: 'Revelar resultados →', res1: 'Ronda 2: influencia social →',
-  r2: 'Revelar resultados →', res2: 'Última ronda →', r3: 'Revelar resultados finales →', final: 'Ver modelo de Bass →', bass: 'Fin',
+  r2: 'Revelar resultados →', res2: 'Última ronda →', r3: 'Revelar resultados finales →', final: 'Ver modelo de Bass →', bass: 'Implicaciones para el marketing →', marketing: 'Fin',
 };
 
 function render() {
@@ -279,7 +322,7 @@ function render() {
   $('steps').innerHTML = STAGE_LABELS.map((l, k) => `<span class="${k === i ? 'now' : k < i ? 'done' : ''}">${l}</span>`).join('');
   $('people').textContent = Object.keys(state.participants).length;
   $('next').textContent = NEXT_LABEL[st];
-  $('next').disabled = st === 'bass';
+  $('next').disabled = i === STAGES.length - 1;
   $('prev').disabled = i === 0;
   const u = joinUrl();
   $('url').textContent = st === 'lobby' ? '' : u.replace(/\/$/, '');
