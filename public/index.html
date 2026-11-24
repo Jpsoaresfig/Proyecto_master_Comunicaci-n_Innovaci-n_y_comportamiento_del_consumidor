@@ -21,6 +21,7 @@ let id = store('bass_id');
 if (!id) { id = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store('bass_id', id); }
 const myId = () => (state && state.me) || id;
 let state = null, api = null, lastHtml = '', busy = false, error = '', rejoining = false;
+let sending = null; // ronda cuyo voto espera la confirmación del servidor
 let editing = null; // ronda cuya respuesta se está cambiando
 
 const header = (p) => `<header><div class="brand">BASS <b>CHALLENGE</b></div>${p ? `<div class="who">${esc(p.name)}</div>` : ''}</header>`;
@@ -51,6 +52,10 @@ function question(round, p) {
     return `<div class="fade-in"><span class="tag"><i></i>${texts.tag}</span>
       <h1>Ya compraste en la ronda ${a + 1}</h1><p>Ahora formas parte de quienes influyen en los demás.</p>
       ${miniProd(adoptedProduct(p))}${socialBox(s)}</div>`;
+  }
+  if (sending === round) {
+    return `<div class="center fade-in"><span class="tag"><i></i>${texts.tag}</span><h1>Enviando respuesta…</h1>
+      <p class="muted"><span class="wait-dot"></span>Espera un momento.</p></div>`;
   }
   if (p.votes[round - 1] !== null && editing !== round) {
     return `<div class="center fade-in"><div class="ok-badge">✓</div><h1>Respuesta registrada</h1>
@@ -122,6 +127,9 @@ function render() {
   if (html !== lastHtml) { app.innerHTML = html; lastHtml = html; }
 }
 
+// Sin conexión, Firestore espera indefinidamente: mejor avisar.
+const withTimeout = (p) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('La conexión es lenta. Comprueba tu internet y vuelve a intentarlo.')), 10000))]);
+
 async function act(fn) {
   if (busy) return;
   busy = true; error = ''; render();
@@ -142,7 +150,7 @@ app.addEventListener('submit', (e) => {
   const name = document.getElementById('name').value.trim();
   if (!name) return;
   store('bass_name', name);
-  act(() => api.join(myId(), name));
+  act(() => withTimeout(api.join(myId(), name)));
 });
 app.addEventListener('click', (e) => {
   const editBtn = e.target.closest('[data-edit]');
@@ -150,14 +158,18 @@ app.addEventListener('click', (e) => {
   const voteBtn = e.target.closest('[data-vote]');
   if (voteBtn) {
     const round = Number(state.stage[1]);
-    if (canVote(state, state.participants[myId()], round)) act(async () => { await api.vote(myId(), round, voteBtn.dataset.vote); editing = null; });
+    if (canVote(state, state.participants[myId()], round)) {
+      if (busy) return;
+      sending = round;
+      act(() => withTimeout(api.vote(myId(), round, voteBtn.dataset.vote)).then(() => { editing = null; }).finally(() => { sending = null; }));
+    }
   }
 });
 
 // Si la conexión tarda demasiado, ofrece reintentar en lugar de quedarse en «Conectando…».
 setTimeout(() => { if (!state) app.innerHTML = connErrorView(); }, 15000);
 api = await connect((s) => {
-  if (state && s.stage !== state.stage) editing = null;
+  if (state && s.stage !== state.stage) { editing = null; error = ''; }
   state = s;
   // Si la simulación se reinició, vuelve a entrar automáticamente con el mismo apodo.
   const saved = store('bass_name');
