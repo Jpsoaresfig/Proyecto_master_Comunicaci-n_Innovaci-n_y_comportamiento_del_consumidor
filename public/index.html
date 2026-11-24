@@ -69,7 +69,11 @@ function question(round, p) {
     </div><div class="err">${esc(error)}</div></div>`;
 }
 
+const connErrorView = () => header() + `<div class="center fade-in"><span class="tag"><i></i>Sin conexión</span><h1>No se pudo conectar</h1>
+  <p>Comprueba tu conexión a internet. Si abriste el QR dentro de otra aplicación, ábrelo en Chrome o Safari.</p><button class="btn" onclick="location.reload()">Reintentar</button></div>`;
+
 function view() {
+  if (state.connError) return connErrorView();
   if (state.noSession) {
     return header() + `<div class="center fade-in"><span class="tag"><i></i>Bass Challenge</span><h1>Escanea el código QR</h1><p>O escribe el código de acceso que aparece en la pantalla del presentador.</p>
       <form id="code" class="stack"><input class="field" id="sid" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Código de acceso" style="text-align:center;letter-spacing:.15em" required>
@@ -82,7 +86,7 @@ function view() {
       <span class="tag"><i></i>Modelo de difusión de Bass</span>
       <h1>Únete al desafío</h1><p>Escribe un apodo para participar en la simulación.</p>
       <form id="join" class="stack"><input class="field" id="name" maxlength="18" autocomplete="off" placeholder="Tu apodo" value="${esc(store('bass_name') || '')}" required>
-      <button class="btn" ${busy ? 'disabled' : ''}>Entrar</button></form><div class="err">${esc(error)}</div></div>`;
+      <button class="btn" ${busy ? 'disabled' : ''}>${busy ? 'Entrando…' : 'Entrar'}</button></form><div class="err">${esc(error)}</div></div>`;
   }
   const st = state.stage;
   if (st === 'lobby') {
@@ -150,17 +154,19 @@ app.addEventListener('click', (e) => {
   }
 });
 
+// Si la conexión tarda demasiado, ofrece reintentar en lugar de quedarse en «Conectando…».
+setTimeout(() => { if (!state) app.innerHTML = connErrorView(); }, 15000);
 api = await connect((s) => {
   if (state && s.stage !== state.stage) editing = null;
   state = s;
   // Si la simulación se reinició, vuelve a entrar automáticamente con el mismo apodo.
   const saved = store('bass_name');
-  if (api && !s.noSession && !s.participants[s.me || id] && saved && !rejoining && lastHtml && !lastHtml.includes('id="join"')) {
+  if (api && !s.noSession && !s.connError && !s.participants[s.me || id] && saved && !rejoining && lastHtml && !lastHtml.includes('id="join"')) {
     rejoining = true;
-    api.join(s.me || id, saved).catch(() => {}).finally(() => { rejoining = false; });
+    api.join(s.me || id, saved).catch((e) => { error = e.message; render(); }).finally(() => { rejoining = false; });
   }
   render();
-});
+}).catch(() => { app.innerHTML = connErrorView(); });
 </script>
 </body>
 </html>

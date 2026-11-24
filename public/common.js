@@ -51,6 +51,7 @@ function normalize(raw) {
     me: raw.me || null,               // uid del participante (modo Firebase)
     sessionId: raw.sessionId || null, // id de la sesión (modo Firebase)
     noSession: !!raw.noSession,
+    connError: !!raw.connError,
   };
 }
 
@@ -138,8 +139,27 @@ async function connectFirestore(cfg, onState, role) {
     onState(current);
   };
   // onSnapshot: cualquier voto o cambio de etapa llega al instante a todas las pantallas.
-  onSnapshot(sessionRef, (s) => { session = s.exists() ? s.data() : null; emit(); });
-  onSnapshot(partsRef, (qs) => { parts = {}; qs.forEach((d) => { parts[d.id] = d.data(); }); emit(); });
+  // includeMetadataChanges permite distinguir lo confirmado por el servidor de lo que solo está en este dispositivo.
+  const opts = { includeMetadataChanges: true };
+  const onErr = () => onState(normalize({ connError: true }));
+  onSnapshot(sessionRef, opts, (s) => {
+    if (!s.exists() && s.metadata.fromCache) return; // sin conexión todavía: no significa que la sesión no exista
+    session = s.exists() ? s.data() : null;
+    emit();
+  }, onErr);
+  let confirmed = new Set();
+  onSnapshot(partsRef, opts, (qs) => {
+    parts = {};
+    const seen = new Set();
+    qs.forEach((d) => {
+      // Una entrada aún no aceptada por el servidor no cuenta (si la rechaza, no se muestra como «dentro»).
+      if (d.metadata.hasPendingWrites && !confirmed.has(d.id)) return;
+      seen.add(d.id);
+      parts[d.id] = d.data();
+    });
+    confirmed = seen;
+    emit();
+  }, onErr);
 
   const guard = (p) => p.catch((e) => {
     throw new Error(e && e.code === 'permission-denied' ? 'Acción no permitida en esta etapa' : 'Error de conexión, inténtalo de nuevo');
@@ -151,7 +171,8 @@ async function connectFirestore(cfg, onState, role) {
       if (!name) return Promise.reject(new Error('Apodo inválido'));
       return guard(current.participants[uid]
         ? updateDoc(myRef, { name })
-        : setDoc(myRef, { name, v1: null, v2: null, v3: null, t: Date.now() }));
+        : setDoc(myRef, { name, v1: null, v2: null, v3: null, t: Date.now() }))
+        .catch((e) => { throw new Error(/no permitida/.test(e.message) ? 'No se pudo entrar: el servidor rechazó el acceso. Avisa al presentador.' : e.message); });
     },
     vote(_id, round, choice) {
       if (!canVote(current, current.participants[uid], round)) return Promise.reject(new Error('Esta ronda no está abierta'));

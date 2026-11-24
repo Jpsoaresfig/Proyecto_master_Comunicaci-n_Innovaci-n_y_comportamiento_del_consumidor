@@ -361,7 +361,10 @@ document.addEventListener('keydown', (e) => {
 
 enableTooltips();
 try {
-  api = await connect((s) => { state = s; render(); }, { key, role: 'presenter' });
+  api = await connect((s) => {
+    if (s.connError) { $('url').textContent = '⚠ Sin conexión con Firebase: recarga la página'; return; }
+    state = s; render();
+  }, { key, role: 'presenter' });
 } catch (e) {
   $('view').innerHTML = `<div class="card panel"><h3>No se pudo conectar con Firebase</h3><p class="muted">${esc(e.message)}</p>
     <p class="muted">Revisa en la consola de Firebase que Cloud Firestore y el acceso anónimo están activados y que las reglas están publicadas (ver README).</p></div>`;
