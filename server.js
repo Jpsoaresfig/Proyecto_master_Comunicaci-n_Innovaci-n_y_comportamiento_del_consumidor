@@ -159,7 +159,8 @@ async function handleApi(req, res, url) {
     const i = STAGES.indexOf(state.stage);
     if (body.action === 'next' && i < STAGES.length - 1) state.stage = STAGES[i + 1];
     else if (body.action === 'prev' && i > 0) state.stage = STAGES[i - 1];
-    else if (body.action === 'reset') {
+    else if (body.action === 'kick') delete state.participants[id];
+    else if (body.action === 'reset' || body.action === 'clear') {
       state.stage = 'lobby';
       state.participants = {};
     }

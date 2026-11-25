@@ -20,7 +20,8 @@ const app = document.getElementById('app');
 let id = store('bass_id');
 if (!id) { id = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store('bass_id', id); }
 const myId = () => (state && state.me) || id;
-let state = null, api = null, lastHtml = '', busy = false, error = '', rejoining = false;
+let state = null, api = null, lastHtml = '', busy = false, error = '';
+let wasIn = false; // ya había entrado: si deja de estar en la lista, el presentador lo quitó o reinició
 let sending = null; // ronda cuyo voto espera la confirmación del servidor
 let editing = null; // ronda cuya respuesta se está cambiando
 
@@ -79,17 +80,19 @@ const connErrorView = () => header() + `<div class="center fade-in"><span class=
 
 function view() {
   if (state.connError) return connErrorView();
-  if (state.noSession) {
-    return header() + `<div class="center fade-in"><span class="tag"><i></i>Bass Challenge</span><h1>Escanea el código QR</h1><p>O escribe el código de acceso que aparece en la pantalla del presentador.</p>
+  const p = state.participants[myId()];
+  // Sin participante en la última etapa: la sesión terminó o el presentador creó otra con un código nuevo.
+  const closed = !p && state.stage === 'marketing';
+  if (state.noSession || (closed && state.sessionId)) {
+    return header() + `<div class="center fade-in"><span class="tag"><i></i>${closed ? 'Sesión terminada' : 'Bass Challenge'}</span><h1>Escanea el código QR</h1><p>${closed ? 'Esta sesión ya terminó. Escanea el código actual o escribe' : 'O escribe'} el código de acceso que aparece en la pantalla del presentador.</p>
       <form id="code" class="stack"><input class="field" id="sid" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Código de acceso" style="text-align:center;letter-spacing:.15em" required>
       <button class="btn">Entrar</button></form><div class="err">${esc(error)}</div>
       <p class="muted" style="margin-top:24px">¿Eres el presentador? <a href="presentador" style="color:var(--accent)">Abrir el panel con el QR →</a></p></div>`;
   }
-  const p = state.participants[myId()];
   if (!p) {
     return header() + `<div class="center fade-in">
       <span class="tag"><i></i>Modelo de difusión de Bass</span>
-      <h1>Únete al desafío</h1><p>Escribe un apodo para participar en la simulación.</p>
+      <h1>Únete al desafío</h1><p>${wasIn ? 'El presentador te ha quitado de la lista o ha reiniciado la simulación. Pulsa «Entrar» si quieres participar.' : 'Escribe un apodo para participar en la simulación.'}</p>
       <form id="join" class="stack"><input class="field" id="name" maxlength="18" autocomplete="off" placeholder="Tu apodo" value="${esc(store('bass_name') || '')}" required>
       <button class="btn" ${busy ? 'disabled' : ''}>${busy ? 'Entrando…' : 'Entrar'}</button></form><div class="err">${esc(error)}</div></div>`;
   }
@@ -171,12 +174,9 @@ setTimeout(() => { if (!state) app.innerHTML = connErrorView(); }, 15000);
 api = await connect((s) => {
   if (state && s.stage !== state.stage) { editing = null; error = ''; }
   state = s;
-  // Si la simulación se reinició, vuelve a entrar automáticamente con el mismo apodo.
-  const saved = store('bass_name');
-  if (api && !s.noSession && !s.connError && !s.participants[s.me || id] && saved && !rejoining && lastHtml && !lastHtml.includes('id="join"')) {
-    rejoining = true;
-    api.join(s.me || id, saved).catch((e) => { error = e.message; render(); }).finally(() => { rejoining = false; });
-  }
+  // Quien sale de la lista no vuelve solo: debe pulsar «Entrar» (así no quedan móviles olvidados).
+  if (s.participants[myId()]) wasIn = true;
+  else editing = null;
   render();
 }).catch(() => { app.innerHTML = connErrorView(); });
 </script>

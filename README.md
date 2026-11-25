@@ -24,6 +24,9 @@ Duración aproximada: 5–10 minutos.
 
 Controles del presentador: botón principal (avanzar / revelar resultados), **Atrás**, **Reiniciar**
 (pide confirmación) y **QR** (muestra el código en grande para quien llegue tarde).
+En la pantalla de entrada, la **×** junto a un apodo quita a esa persona, y **Quitar a todos y crear código nuevo**
+vacía la sala: los móviles de antes quedan fuera y hay que escanear el QR nuevo. Nadie vuelve a entrar
+automáticamente: tras **Reiniciar** (mismo código) cada persona debe pulsar «Entrar» otra vez.
 Mientras una ronda está abierta, cada participante puede cambiar su respuesta; al revelar los resultados queda fija.
 Quien abra la web sin el QR puede escribir el **código de acceso** que aparece debajo del QR.
 Atajos de teclado: `→` avanzar, `←` atrás, `Q` mostrar QR — funciona con un presentador de diapositivas.

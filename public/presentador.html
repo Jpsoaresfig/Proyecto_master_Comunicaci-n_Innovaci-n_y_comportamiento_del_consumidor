@@ -16,6 +16,11 @@
   #qrOverlay .qr-url { max-width: none; font-size: 22px; }
   .qr-code { text-align: center; margin-top: 10px; font-size: 18px; color: var(--text-2); }
   .qr-code b { font-family: ui-monospace, Consolas, monospace; font-size: 34px; color: var(--text); letter-spacing: .14em; margin-left: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; }
+  .chip button { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 6px; margin-right: -8px; border-radius: 99px; }
+  .chip button:hover, .chip button:focus-visible { color: #ff9b9b; background: rgba(255,255,255,.08); }
+  .count-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 18px; }
+  .clear-all { padding: 6px 14px; font-size: 14px; }
   .dist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 22px; max-width: 620px; }
   .dist .card { padding: 14px 16px; border-left: 4px solid var(--c); }
   .dist .n { font-size: 30px; font-weight: 700; }
@@ -60,6 +65,7 @@ import { connect, STAGES, STAGE_LABELS, PRODUCTS, stats, adoptedRound, illustrat
 const $ = (id) => document.getElementById(id);
 const key = new URLSearchParams(location.search).get('key') || '';
 let state = null, api = null, lastHtml = '', lastStage = null;
+let clearArmed = null; // «Quitar a todos» espera la confirmación
 const fmt = (x, d = 2) => (x == null ? '—' : x.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d }));
 
 // ---------- QR ----------
@@ -176,17 +182,17 @@ const PITCHED = PRODUCTS.find((p) => p.pitched);
 const VIEWS = {
   lobby() {
     const u = joinUrl();
-    const names = Object.values(state.participants).sort((a, b) => a.t - b.t);
+    const names = Object.entries(state.participants).sort((a, b) => a[1].t - b[1].t);
     const lanOnly = !state.publicUrl && !state.sessionId && ['localhost', '127.0.0.1'].includes(location.hostname);
     return `<div class="lobby">
       <div><div class="qr-box">${qrSvg(u)}</div><div class="qr-url">${esc(u.replace(/\/$/, ''))}</div><div class="qr-code">${codeHtml()}</div></div>
       <div><span class="tag"><i></i>Modelo de difusión de Bass · 1969</span>
         <h1 class="hero-title">Escanea el código<br>y únete al desafío</h1>
         <p class="lead">Simularemos en directo cómo se difunde una innovación en un mercado: quién compra primero, quién imita y cuándo se satura.</p>
-        <div class="count-big num">${names.length}</div><div class="muted" style="font-size:18px">participantes conectados</div>
+        <div class="count-big num">${names.length}</div><div class="muted count-row">participantes conectados${names.length ? `<button class="cbtn danger clear-all" data-clear>${clearArmed ? '¿Confirmar? Todos tendrán que volver a entrar' : state.sessionId ? 'Quitar a todos y crear código nuevo' : 'Quitar a todos'}</button>` : ''}</div>
         <div class="dist">${PRODUCTS.map((p) => `<div class="card" style="--c:${p.color}"><div style="font-size:20px;font-weight:700">${p.name} · ${p.price}</div><div class="t">${p.desc}</div></div>`).join('')}</div>
         <p class="note">En cada ronda: uno de los dos o ninguno. Mismo precio hipotético para ambos.</p>
-        <div class="chips">${names.map((p) => `<span class="chip">${esc(p.name)}</span>`).join('')}</div>
+        <div class="chips">${names.map(([id, p]) => `<span class="chip">${esc(p.name)}<button data-kick="${esc(id)}" title="Quitar a ${esc(p.name)}" aria-label="Quitar a ${esc(p.name)}">×</button></span>`).join('')}</div>
         ${lanOnly ? '<div class="note">Enlace de red local: los móviles deben estar en la misma red Wi-Fi que este ordenador.</div>' : ''}
       </div></div>`;
   },
@@ -337,8 +343,8 @@ function render() {
   }
 }
 
-async function admin(action) {
-  try { await api.admin(action); }
+async function admin(action, id) {
+  try { await api.admin(action, id); }
   catch (e) { $('url').textContent = '⚠ ' + e.message + (api.mode === 'local' ? ' — abre el enlace con ?key= que muestra la consola' : ''); }
 }
 $('next').onclick = () => admin('next');
@@ -349,6 +355,15 @@ $('reset').onclick = () => {
   $('reset').textContent = '¿Confirmar reinicio?';
   armed = setTimeout(() => { armed = null; $('reset').textContent = 'Reiniciar'; }, 3000);
 };
+// Quitar participantes desde la pantalla del QR.
+$('view').addEventListener('click', (e) => {
+  const kick = e.target.closest('[data-kick]');
+  if (kick) { kick.disabled = true; admin('kick', kick.dataset.kick).finally(() => { kick.disabled = false; }); return; }
+  if (!e.target.closest('[data-clear]')) return;
+  if (clearArmed) { clearTimeout(clearArmed); clearArmed = null; admin('clear'); }
+  else clearArmed = setTimeout(() => { clearArmed = null; render(); }, 4000);
+  render();
+});
 const toggleQr = () => { $('qrOverlay').classList.toggle('on'); render(); };
 $('qrBtn').onclick = toggleQr;
 $('qrOverlay').onclick = toggleQr;

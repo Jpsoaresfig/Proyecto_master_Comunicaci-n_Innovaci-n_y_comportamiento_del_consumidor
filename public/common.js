@@ -89,7 +89,7 @@ function connectLocal(onState, key) {
     mode: 'local',
     join: (id, name) => post('/api/join', { id, name }),
     vote: (id, round, choice) => post('/api/vote', { id, round, choice }),
-    admin: (action) => post('/api/admin', { key, action }),
+    admin: (action, id) => post('/api/admin', { key, action, id }),
   };
 }
 
@@ -105,7 +105,7 @@ async function connectFirestore(cfg, onState, role) {
     import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`),
     import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`),
   ]);
-  const { getFirestore, doc, collection, onSnapshot, getDoc, getDocs, setDoc, updateDoc, writeBatch } = fs;
+  const { getFirestore, doc, collection, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch } = fs;
   const app = initializeApp(cfg);
   const db = getFirestore(app);
   const auth = au.getAuth(app);
@@ -115,12 +115,16 @@ async function connectFirestore(cfg, onState, role) {
 
   // Sesión: el presentador crea (o recupera) la suya; los participantes la reciben en el QR (?s=...).
   let sid = role === 'presenter' ? store('bass_sid') : new URLSearchParams(location.search).get('s');
+  const createSession = async () => {
+    const newSid = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+    await setDoc(doc(db, 'sessions', newSid), { owner: uid, stage: 'lobby', createdAt: Date.now() });
+    store('bass_sid', newSid);
+    return newSid;
+  };
   if (role === 'presenter') {
     const snap = sid ? await getDoc(doc(db, 'sessions', sid)).catch(() => null) : null;
     if (!snap || !snap.exists() || snap.data().owner !== uid) {
-      sid = Math.random().toString(36).slice(2, 8);
-      await setDoc(doc(db, 'sessions', sid), { owner: uid, stage: 'lobby', createdAt: Date.now() });
-      store('bass_sid', sid);
+      sid = await createSession();
     }
   }
   if (!sid || !/^[a-z0-9]{4,12}$/.test(sid)) {
@@ -178,16 +182,21 @@ async function connectFirestore(cfg, onState, role) {
       if (!canVote(current, current.participants[uid], round)) return Promise.reject(new Error('Esta ronda no está abierta'));
       return guard(updateDoc(myRef, { ['v' + round]: choice }));
     },
-    async admin(action) {
+    async admin(action, id) {
       const i = STAGES.indexOf(current.stage);
       if (action === 'next' && i < STAGES.length - 1) return guard(updateDoc(sessionRef, { stage: STAGES[i + 1] }));
       if (action === 'prev' && i > 0) return guard(updateDoc(sessionRef, { stage: STAGES[i - 1] }));
-      if (action === 'reset') {
-        const all = await getDocs(partsRef);
+      if (action === 'kick' && id) return guard(deleteDoc(doc(partsRef, id)));
+      if (action === 'reset' || action === 'clear') {
+        // «clear»: además, código nuevo. Ningún móvil de la sesión anterior puede colarse en la nueva;
+        // la anterior queda en la última etapa, que los móviles muestran como sesión terminada.
+        if (action === 'clear') await guard(createSession());
+        const all = await guard(getDocs(partsRef));
         const batch = writeBatch(db);
         all.forEach((d) => batch.delete(d.ref));
-        batch.update(sessionRef, { stage: 'lobby' });
-        return guard(batch.commit());
+        batch.update(sessionRef, { stage: action === 'clear' ? STAGES[STAGES.length - 1] : 'lobby' });
+        await guard(batch.commit());
+        if (action === 'clear') location.reload();
       }
     },
   };
